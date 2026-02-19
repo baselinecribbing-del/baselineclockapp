@@ -1,4 +1,10 @@
-from sqlalchemy import text
+from sqlalchemy import inspect, text
+
+
+def table_exists(engine, table_name: str) -> bool:
+    if engine is None:
+        return False
+    return inspect(engine).has_table(table_name)
 
 
 def install_job_cost_ledger_immutability(engine) -> None:
@@ -12,6 +18,9 @@ def install_job_cost_ledger_immutability(engine) -> None:
     # Only apply to PostgreSQL
     dialect = getattr(engine, "dialect", None)
     if dialect is None or getattr(dialect, "name", "") != "postgresql":
+        return
+
+    if not table_exists(engine, "job_cost_ledger"):
         return
 
     ddl = """

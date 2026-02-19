@@ -12,10 +12,12 @@ def test_job_cost_ledger_unique_posting_key_blocks_duplicates():
     db = SessionLocal()
     try:
         ref = f"uniq-{uuid4()}"
+        company_id = 7301
+        job_id = 7302
 
         row1 = JobCostLedger(
-            company_id=1,
-            job_id=1,
+            company_id=company_id,
+            job_id=job_id,
             scope_id=None,
             employee_id=None,
             source_type="LABOR",
@@ -31,8 +33,8 @@ def test_job_cost_ledger_unique_posting_key_blocks_duplicates():
         db.commit()
 
         row2 = JobCostLedger(
-            company_id=1,
-            job_id=1,
+            company_id=company_id,
+            job_id=job_id,
             scope_id=None,
             employee_id=None,
             source_type="LABOR",

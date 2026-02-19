@@ -4,8 +4,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Request, HTTPException
 from pydantic import BaseModel
 
+from app.core.authorization import Role, require_role
 from app.database import SessionLocal
-from app.deps.auth import require_auth
 from app.models.job_cost_ledger import JobCostLedger
 from app.services import costing_service
 
@@ -21,7 +21,7 @@ class ProductionPostRequest(BaseModel):
 def post_labor(
     pay_period_id: int,
     request: Request,
-    _auth: tuple[str, int] = Depends(require_auth),
+    _role=Depends(require_role(Role.MANAGER)),
 ):
     try:
         return costing_service.post_labor_costs(
@@ -36,7 +36,7 @@ def post_labor(
 def post_production(
     payload: ProductionPostRequest,
     request: Request,
-    _auth: tuple[str, int] = Depends(require_auth),
+    _role=Depends(require_role(Role.MANAGER)),
 ):
     try:
         return costing_service.post_production_costs(
@@ -53,7 +53,7 @@ def get_job_ledger(
     job_id: int,
     request: Request,
     scope_id: Optional[int] = None,
-    _auth: tuple[str, int] = Depends(require_auth),
+    _role=Depends(require_role(Role.MANAGER)),
 ):
     db = SessionLocal()
     try:

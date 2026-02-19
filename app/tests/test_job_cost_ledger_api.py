@@ -42,18 +42,21 @@ def _insert_row(company_id: int, job_id: int, source_reference_id: str):
 def test_ledger_read_filters_by_company():
     ref1 = f"c1-{uuid4()}"
     ref2 = f"c2-{uuid4()}"
+    company_1 = 7001
+    company_2 = 7002
+    job_id = 7101
 
-    _insert_row(company_id=1, job_id=1, source_reference_id=ref1)
-    _insert_row(company_id=2, job_id=1, source_reference_id=ref2)
+    _insert_row(company_id=company_1, job_id=job_id, source_reference_id=ref1)
+    _insert_row(company_id=company_2, job_id=job_id, source_reference_id=ref2)
 
-    r1 = client.get("/costing/job/1/ledger", headers=_auth_headers(1))
+    r1 = client.get(f"/costing/job/{job_id}/ledger", headers=_auth_headers(company_1))
     assert r1.status_code == 200
     data1 = r1.json()
     refs1 = [row["source_reference_id"] for row in data1["rows"]]
     assert ref1 in refs1
     assert ref2 not in refs1
 
-    r2 = client.get("/costing/job/1/ledger", headers=_auth_headers(2))
+    r2 = client.get(f"/costing/job/{job_id}/ledger", headers=_auth_headers(company_2))
     assert r2.status_code == 200
     data2 = r2.json()
     refs2 = [row["source_reference_id"] for row in data2["rows"]]
