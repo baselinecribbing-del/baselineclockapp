@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Workflow Complete</h1>
+  <p class="muted">Execution {{ execution.execution_id }} finished.</p>
+  <p>Status: <strong>{{ execution.status }}</strong></p>
+  <p>Time Entry ID: <strong>{{ execution.time_entry_id or "N/A" }}</strong></p>
+  <p>Started At: <strong>{{ execution.time_entry_started_at or "N/A" }}</strong></p>
+  <p>Ended At: <strong>{{ execution.time_entry_ended_at or "N/A" }}</strong></p>
+
+  <h3>Completed Steps</h3>
+  <ul>
+    {% for step in completed_steps %}
+    <li>{{ step.label }}</li>
+    {% else %}
+    <li class="muted">None</li>
+    {% endfor %}
+  </ul>
+
+  <div class="section">
+    <a class="btn" href="/preview/ui">Start Another</a>
+  </div>
+</div>
+{% endblock %}

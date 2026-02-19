@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workflow Preview UI</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f4f6f8; color: #111827; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px; }
+    .layout { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+    .muted { color: #6b7280; }
+    .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; border: 1px solid #d1d5db; }
+    .pill.required { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
+    .pill.optional { background: #ecfeff; border-color: #a5f3fc; color: #0e7490; }
+    .pill.readonly { background: #f3f4f6; color: #374151; }
+    .btn { border: 1px solid #d1d5db; background: #111827; color: #fff; padding: 10px 14px; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+    .btn.secondary { background: #fff; color: #111827; }
+    .btn.warn { background: #92400e; }
+    input, select { width: 100%; border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; margin-top: 6px; }
+    label { display: block; margin-bottom: 10px; }
+    ul { margin: 8px 0 0 18px; padding: 0; }
+    .current { font-weight: 700; color: #111827; }
+    .section { margin-top: 16px; }
+    @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

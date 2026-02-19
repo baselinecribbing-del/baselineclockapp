@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="layout">
+  <div class="card">
+    <h2>Execution {{ execution.execution_id }}</h2>
+    <p class="muted">Flow: {{ execution.flow_name }} | Status: {{ execution.status }}</p>
+
+    {% if current_step %}
+    <div class="section">
+      <h3>{{ current_step.label }}</h3>
+      <p>
+        {% if current_step.required %}
+        <span class="pill required">Required</span>
+        {% else %}
+        <span class="pill optional">Optional</span>
+        {% endif %}
+        {% if current_step.read_only %}
+        <span class="pill readonly">Read Only</span>
+        {% endif %}
+      </p>
+    </div>
+
+    <div class="section">
+      <form method="post" action="/preview/ui/{{ execution.execution_id }}/submit">
+        {% if show_input %}
+        <label>Step Input
+          <input name="step_value" type="text" placeholder="Enter value">
+        </label>
+        {% endif %}
+        <button class="btn" type="submit">Submit</button>
+      </form>
+    </div>
+
+    <div class="section">
+      <form method="post" action="/preview/ui/{{ execution.execution_id }}/advance" style="display:inline-block; margin-right:8px;">
+        <button class="btn secondary" type="submit">Next</button>
+      </form>
+      {% if not current_step.required %}
+      <form method="post" action="/preview/ui/{{ execution.execution_id }}/skip" style="display:inline-block;">
+        <button class="btn warn" type="submit">Skip</button>
+      </form>
+      {% endif %}
+    </div>
+    {% else %}
+    <p>No active step.</p>
+    <a class="btn" href="/preview/ui/{{ execution.execution_id }}/done">View Completion</a>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Progress</h3>
+    <div class="section">
+      <strong>Completed</strong>
+      <ul>
+        {% for step in completed_steps %}
+        <li>{{ step.label }}</li>
+        {% else %}
+        <li class="muted">None</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="section">
+      <strong>Current</strong>
+      <ul>
+        {% if current_step %}
+        <li class="current">{{ current_step.label }}</li>
+        {% else %}
+        <li class="muted">None</li>
+        {% endif %}
+      </ul>
+    </div>
+    <div class="section">
+      <strong>Remaining</strong>
+      <ul>
+        {% for step in remaining_steps %}
+        <li>{{ step.label }}</li>
+        {% else %}
+        <li class="muted">None</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

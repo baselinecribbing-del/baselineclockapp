@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Workflow Step Runner</h1>
+  <p class="muted">Start a preview execution.</p>
+  <form method="post" action="/preview/ui/start">
+    <label>Company ID<input name="company_id" type="number" required></label>
+    <label>Employee ID<input name="employee_id" type="number" required></label>
+    <label>Job ID<input name="job_id" type="number" required></label>
+    <label>Scope ID<input name="scope_id" type="number" required></label>
+    <label>Flow
+      <select name="flow_name" required>
+        {% for flow in flows %}
+        <option value="{{ flow }}">{{ flow }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="btn" type="submit">Start Execution</button>
+  </form>
+</div>
+{% endblock %}
