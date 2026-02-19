@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ArthurS
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: baseline_workforce
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://ArthurS:password@postgres:5432/baseline_workforce
+      JWT_SECRET: change-this-secret-to-at-least-32-characters
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:
