@@ -4,12 +4,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source venv/bin/activate
 
-export DATABASE_URL=postgresql://ArthurS@localhost/frontier_test
+PGUSER=${PGUSER:-postgres}
+PGHOST=${PGHOST:-localhost}
+TEST_DB=${TEST_DB:-frontier_test}
 
-psql postgresql://ArthurS@localhost/postgres -v ON_ERROR_STOP=1 -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'frontier_test' AND pid <> pg_backend_pid();"
+export DATABASE_URL="postgresql://${PGUSER}@${PGHOST}/${TEST_DB}"
 
-dropdb --if-exists frontier_test
-createdb frontier_test
+psql "postgresql://${PGUSER}@${PGHOST}/postgres" -v ON_ERROR_STOP=1 -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${TEST_DB}' AND pid <> pg_backend_pid();"
+
+dropdb --if-exists -h "${PGHOST}" -U "${PGUSER}" "${TEST_DB}"
+createdb -h "${PGHOST}" -U "${PGUSER}" "${TEST_DB}"
 
 alembic upgrade head
 pytest -q

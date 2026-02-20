@@ -6,7 +6,7 @@ from logging.config import fileConfig
 from typing import Optional
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, engine_from_config, pool
 from sqlalchemy.engine import Connection
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -45,7 +45,7 @@ def _get_db_url() -> str:
 
 
 def run_migrations_offline() -> None:
-    url = _get_db_url()
+    url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -72,6 +72,13 @@ def _configure_and_run(connection: Connection) -> None:
 
 
 def run_migrations_online() -> None:
+    env_url = os.getenv("DATABASE_URL")
+    if env_url:
+        connectable = create_engine(env_url)
+        with connectable.connect() as connection:
+            _configure_and_run(connection)
+        return
+
     connectable = None
 
     try:
