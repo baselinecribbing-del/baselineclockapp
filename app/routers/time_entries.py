@@ -1,8 +1,15 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from app.database import SessionLocal
 from app.deps.auth import require_auth
 from app.models.time_entry import TimeEntry
+from app.services import time_engine_v10
 
 router = APIRouter(
     prefix="/time_entries",
@@ -10,7 +17,117 @@ router = APIRouter(
 )
 
 
-@router.get("/active")
+class ClockInRequest(BaseModel):
+    employee_id: int
+    job_id: int
+    scope_id: int
+    started_at: Optional[datetime] = Field(
+        default=None,
+        description="If omitted, server uses current UTC time.",
+    )
+
+
+class ClockOutRequest(BaseModel):
+    employee_id: int
+    ended_at: Optional[datetime] = Field(
+        default=None,
+        description="If omitted, server uses current UTC time.",
+    )
+
+
+class TimeEntryResponse(BaseModel):
+    time_entry_id: str
+    company_id: int
+    employee_id: int
+    job_id: int
+    scope_id: int
+    status: str
+    started_at: datetime
+    ended_at: Optional[datetime]
+
+
+def _to_response(entry: TimeEntry) -> TimeEntryResponse:
+    return TimeEntryResponse(
+        time_entry_id=entry.time_entry_id,
+        company_id=entry.company_id,
+        employee_id=entry.employee_id,
+        job_id=entry.job_id,
+        scope_id=entry.scope_id,
+        status=entry.status,
+        started_at=entry.started_at,
+        ended_at=entry.ended_at,
+    )
+
+
+@router.post("/clock_in", response_model=TimeEntryResponse)
+def clock_in_endpoint(
+    payload: ClockInRequest,
+    request: Request,
+    x_company_id: int = Header(..., alias="X-Company-Id"),
+    _auth: tuple[str, int] = Depends(require_auth),
+):
+    if int(x_company_id) != int(request.state.company_id):
+        raise HTTPException(status_code=403, detail="Company mismatch")
+
+    started_at = payload.started_at or datetime.now(timezone.utc)
+
+    db = SessionLocal()
+    try:
+        entry = time_engine_v10.clock_in(
+            company_id=int(x_company_id),
+            employee_id=int(payload.employee_id),
+            job_id=int(payload.job_id),
+            scope_id=int(payload.scope_id),
+            started_at=started_at,
+            db=db,
+        )
+        db.commit()
+        db.refresh(entry)
+        return _to_response(entry)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@router.post("/clock_out", response_model=TimeEntryResponse)
+def clock_out_endpoint(
+    payload: ClockOutRequest,
+    request: Request,
+    x_company_id: int = Header(..., alias="X-Company-Id"),
+    _auth: tuple[str, int] = Depends(require_auth),
+):
+    if int(x_company_id) != int(request.state.company_id):
+        raise HTTPException(status_code=403, detail="Company mismatch")
+
+    ended_at = payload.ended_at or datetime.now(timezone.utc)
+
+    db = SessionLocal()
+    try:
+        entry = time_engine_v10.clock_out(
+            company_id=int(x_company_id),
+            employee_id=int(payload.employee_id),
+            ended_at=ended_at,
+            db=db,
+        )
+        db.commit()
+        db.refresh(entry)
+        return _to_response(entry)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@router.get("/active", response_model=TimeEntryResponse)
 def get_active_time_entry(
     employee_id: int,
     request: Request,
@@ -21,34 +138,25 @@ def get_active_time_entry(
         raise HTTPException(status_code=403, detail="Company mismatch")
 
     db = SessionLocal()
-    entry = (
-        db.query(TimeEntry)
-        .filter(
-            TimeEntry.company_id == int(x_company_id),
-            TimeEntry.employee_id == int(employee_id),
-            TimeEntry.status == "active",
+    try:
+        entry = (
+            db.query(TimeEntry)
+            .filter(
+                TimeEntry.company_id == int(x_company_id),
+                TimeEntry.employee_id == int(employee_id),
+                TimeEntry.status == "active",
+            )
+            .order_by(TimeEntry.started_at.desc())
+            .first()
         )
-        .order_by(TimeEntry.started_at.desc())
-        .first()
-    )
-    db.close()
-
-    if entry is None:
-        raise HTTPException(status_code=404, detail="No active time entry")
-
-    return {
-        "time_entry_id": entry.time_entry_id,
-        "company_id": entry.company_id,
-        "employee_id": entry.employee_id,
-        "job_id": entry.job_id,
-        "scope_id": entry.scope_id,
-        "status": entry.status,
-        "started_at": entry.started_at,
-        "ended_at": entry.ended_at,
-    }
+        if entry is None:
+            raise HTTPException(status_code=404, detail="No active time entry")
+        return _to_response(entry)
+    finally:
+        db.close()
 
 
-@router.get("/latest")
+@router.get("/latest", response_model=TimeEntryResponse)
 def get_latest_time_entry(
     employee_id: int,
     request: Request,
@@ -59,27 +167,18 @@ def get_latest_time_entry(
         raise HTTPException(status_code=403, detail="Company mismatch")
 
     db = SessionLocal()
-    entry = (
-        db.query(TimeEntry)
-        .filter(
-            TimeEntry.company_id == int(x_company_id),
-            TimeEntry.employee_id == int(employee_id),
+    try:
+        entry = (
+            db.query(TimeEntry)
+            .filter(
+                TimeEntry.company_id == int(x_company_id),
+                TimeEntry.employee_id == int(employee_id),
+            )
+            .order_by(TimeEntry.started_at.desc())
+            .first()
         )
-        .order_by(TimeEntry.started_at.desc())
-        .first()
-    )
-    db.close()
-
-    if entry is None:
-        raise HTTPException(status_code=404, detail="No time entries found")
-
-    return {
-        "time_entry_id": entry.time_entry_id,
-        "company_id": entry.company_id,
-        "employee_id": entry.employee_id,
-        "job_id": entry.job_id,
-        "scope_id": entry.scope_id,
-        "status": entry.status,
-        "started_at": entry.started_at,
-        "ended_at": entry.ended_at,
-    }
+        if entry is None:
+            raise HTTPException(status_code=404, detail="No time entries found")
+        return _to_response(entry)
+    finally:
+        db.close()
