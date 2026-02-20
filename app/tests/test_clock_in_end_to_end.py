@@ -9,9 +9,12 @@ client = TestClient(app)
 
 
 def _auth_headers(company_id: int) -> dict:
-    r = client.post("/auth/token", json={"user_id": "test", "company_id": company_id})
-    token = r.json()["access_token"]
-    return {"X-Company-Id": str(company_id), "Authorization": f"Bearer {token}"}
+    resp = client.post("/auth/token", json={"user_id": "test", "company_id": company_id})
+    assert resp.status_code == 200, f"token request failed: {resp.status_code} {resp.text}"
+    data = resp.json()
+    assert isinstance(data, dict), f"token response not a JSON object: {data}"
+    assert "access_token" in data, f"token response missing access_token: {data}"
+    return {"X-Company-Id": str(company_id), "Authorization": f"Bearer {data['access_token']}"}
 
 
 def _run_flow_to_completion(

@@ -4,6 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source venv/bin/activate
 
+# Tests require a stable JWT secret; must be >= 32 chars to satisfy /auth/token validation.
+export JWT_SECRET="${JWT_SECRET:-test-jwt-secret-for-pytest-only-0000000000000000}"
+
+
 PGUSER=${PGUSER:-postgres}
 PGHOST=${PGHOST:-localhost}
 TEST_DB=${TEST_DB:-frontier_test}

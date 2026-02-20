@@ -1,4 +1,8 @@
 import os
+_default_test_secret = "test-jwt-secret-for-pytest-only-0000000000000000"
+if len(os.environ.get("JWT_SECRET", "")) < 32:
+    os.environ["JWT_SECRET"] = _default_test_secret
+
 import subprocess
 from pathlib import Path
 
@@ -10,6 +14,15 @@ TEST_DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ArthurS@localhost/fr
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 from app import database
+
+
+def _get_access_token(client, company_id: int, user_id: str = "test") -> str:
+    resp = client.post("/auth/token", json={"user_id": user_id, "company_id": company_id})
+    assert resp.status_code == 200, f"token request failed: {resp.status_code} {resp.text}"
+    data = resp.json()
+    assert isinstance(data, dict), f"token response not a JSON object: {data}"
+    assert "access_token" in data, f"token response missing access_token: {data}"
+    return data["access_token"]
 
 
 def _ensure_database_exists(database_url: str) -> None:
