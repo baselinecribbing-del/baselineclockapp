@@ -14,6 +14,10 @@ TEST_DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ArthurS@localhost/fr
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 from app import database
+from app.database import SessionLocal
+from app.models.employee import Employee
+from app.models.job import Job
+from app.models.scope import Scope
 
 
 def _get_access_token(client, company_id: int, user_id: str = "test") -> str:
@@ -102,3 +106,53 @@ def _truncate_tables_between_tests():
         if table_names:
             quoted = ", ".join([f'"public"."{name}"' for name in table_names])
             conn.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
+
+
+@pytest.fixture
+def employee_factory():
+    def _create(company_id: int = 1, name: str = "Test Employee") -> Employee:
+        db = SessionLocal()
+        try:
+            row = Employee(company_id=company_id, name=name, is_active=True)
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            return row
+        finally:
+            db.close()
+
+    return _create
+
+
+@pytest.fixture
+def job_factory():
+    def _create(company_id: int = 1, name: str = "Test Job") -> Job:
+        db = SessionLocal()
+        try:
+            row = Job(company_id=company_id, name=name, is_active=True)
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            return row
+        finally:
+            db.close()
+
+    return _create
+
+
+@pytest.fixture
+def scope_factory():
+    def _create(company_id: int = 1, job_id: int | None = None, name: str = "Test Scope") -> Scope:
+        if job_id is None:
+            raise ValueError("scope_factory requires job_id")
+        db = SessionLocal()
+        try:
+            row = Scope(company_id=company_id, job_id=job_id, name=name, is_active=True)
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            return row
+        finally:
+            db.close()
+
+    return _create

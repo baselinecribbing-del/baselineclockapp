@@ -57,17 +57,20 @@ def _latest(company_id: int, employee_id: int) -> TimeEntry:
         db.close()
 
 
-def test_clock_in_creates_active_entry():
+def test_clock_in_creates_active_entry(employee_factory, job_factory, scope_factory):
     company_id = 61001
-    employee_id = 61002
+    employee = employee_factory(company_id=company_id)
+    job = job_factory(company_id=company_id)
+    scope = scope_factory(company_id=company_id, job_id=job.id)
+    employee_id = employee.id
     _cleanup(company_id, employee_id)
 
     started_at = datetime.now(timezone.utc) - timedelta(minutes=1)
     row = time_engine.clock_in(
         company_id=company_id,
         employee_id=employee_id,
-        job_id=1,
-        scope_id=1,
+        job_id=job.id,
+        scope_id=scope.id,
         started_at=started_at,
     )
 
@@ -77,17 +80,20 @@ def test_clock_in_creates_active_entry():
     assert _count_active(company_id, employee_id) == 1
 
 
-def test_clock_in_rejects_when_active_exists():
+def test_clock_in_rejects_when_active_exists(employee_factory, job_factory, scope_factory):
     company_id = 62001
-    employee_id = 62002
+    employee = employee_factory(company_id=company_id)
+    job = job_factory(company_id=company_id)
+    scope = scope_factory(company_id=company_id, job_id=job.id)
+    employee_id = employee.id
     _cleanup(company_id, employee_id)
 
     started_at = datetime.now(timezone.utc) - timedelta(minutes=2)
     time_engine.clock_in(
         company_id=company_id,
         employee_id=employee_id,
-        job_id=1,
-        scope_id=1,
+        job_id=job.id,
+        scope_id=scope.id,
         started_at=started_at,
     )
 
@@ -95,8 +101,8 @@ def test_clock_in_rejects_when_active_exists():
         time_engine.clock_in(
             company_id=company_id,
             employee_id=employee_id,
-            job_id=1,
-            scope_id=1,
+            job_id=job.id,
+            scope_id=scope.id,
             started_at=datetime.now(timezone.utc),
         )
 
@@ -104,17 +110,20 @@ def test_clock_in_rejects_when_active_exists():
     assert _count_active(company_id, employee_id) == 1
 
 
-def test_clock_out_completes_active_entry():
+def test_clock_out_completes_active_entry(employee_factory, job_factory, scope_factory):
     company_id = 63001
-    employee_id = 63002
+    employee = employee_factory(company_id=company_id)
+    job = job_factory(company_id=company_id)
+    scope = scope_factory(company_id=company_id, job_id=job.id)
+    employee_id = employee.id
     _cleanup(company_id, employee_id)
 
     started_at = datetime.now(timezone.utc) - timedelta(minutes=5)
     time_engine.clock_in(
         company_id=company_id,
         employee_id=employee_id,
-        job_id=1,
-        scope_id=1,
+        job_id=job.id,
+        scope_id=scope.id,
         started_at=started_at,
     )
 
@@ -133,9 +142,10 @@ def test_clock_out_completes_active_entry():
     assert latest.status == "completed"
 
 
-def test_clock_out_rejects_when_no_active_entry():
+def test_clock_out_rejects_when_no_active_entry(employee_factory):
     company_id = 64001
-    employee_id = 64002
+    employee = employee_factory(company_id=company_id)
+    employee_id = employee.id
     _cleanup(company_id, employee_id)
 
     with pytest.raises(ValueError) as exc:
