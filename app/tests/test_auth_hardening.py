@@ -7,6 +7,7 @@ client = TestClient(app)
 def _mint_token(user_id="dev-user", company_id=1) -> str:
     # /auth/token requires JWT_SECRET
     os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-pytest-only-0000000000000000")
+    os.environ.setdefault("ENV", "test")
     r = client.post("/auth/token", json={"user_id": user_id, "company_id": company_id})
     assert r.status_code == 200, r.text
     return r.json()["access_token"]
@@ -58,3 +59,10 @@ def test_company_mismatch_403():
     )
     assert r.status_code == 403
     assert "Company mismatch" in r.text
+
+def test_auth_token_disabled_outside_dev(monkeypatch):
+    monkeypatch.setenv("ENV", "prod")
+    monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-for-pytest-only-0000000000000000")
+
+    r = client.post("/auth/token", json={"user_id": "dev-user", "company_id": 1})
+    assert r.status_code == 404
