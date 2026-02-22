@@ -59,17 +59,18 @@ def _to_response(entry: TimeEntry) -> TimeEntryResponse:
         ended_at=entry.ended_at,
     )
 
+
 @router.get("", response_model=list[TimeEntryResponse])
 def list_time_entries(
     request: Request,
     x_company_id: int = Header(..., alias="X-Company-Id"),
     _auth: tuple[str, int] = Depends(require_auth),
-    employee_id: Optional[int] = None,
-    job_id: Optional[int] = None,
-    scope_id: Optional[int] = None,
-    status: Optional[Literal["active", "completed"]] = None,
-    started_at_from: Optional[datetime] = None,
-    started_at_to: Optional[datetime] = None,
+    employee_id: Optional[int] = Query(default=None),
+    job_id: Optional[int] = Query(default=None),
+    scope_id: Optional[int] = Query(default=None),
+    status: Optional[Literal["active", "completed"]] = Query(default=None),
+    started_at_from: Optional[datetime] = Query(default=None),
+    started_at_to: Optional[datetime] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
