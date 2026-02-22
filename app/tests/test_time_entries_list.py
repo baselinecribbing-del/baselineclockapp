@@ -104,7 +104,11 @@ def test_list_time_entries_filters_and_pagination(employee_factory, job_factory,
     # started_at range filter (should include only t2)
     from_t = (now - timedelta(hours=1, minutes=30)).isoformat()
     to_t = now.isoformat()
-    only_recent = client.get(f"/time_entries?started_at_from={from_t}&started_at_to={to_t}", headers=headers)
+    only_recent = client.get(
+        "/time_entries",
+        params={"started_at_from": from_t, "started_at_to": to_t},
+        headers=headers,
+    )
     assert only_recent.status_code == 200, only_recent.text
     data = only_recent.json()
     assert len(data) == 1
