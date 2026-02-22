@@ -24,15 +24,15 @@ def _db():
     return SessionLocal()
 
 
-def _insert_active_time_entry(company_id: int, employee_id: int):
+def _insert_active_time_entry(company_id: int, employee_id: int, job_id: int, scope_id: int):
     db = _db()
     try:
         row = TimeEntry(
             time_entry_id=str(uuid4()),
             company_id=company_id,
             employee_id=employee_id,
-            job_id=1,
-            scope_id=1,
+            job_id=job_id,
+            scope_id=scope_id,
             started_at=datetime.utcnow(),
             ended_at=None,
             status="active",
@@ -89,11 +89,14 @@ def _count_active_time_entries(company_id: int, employee_id: int) -> int:
         db.close()
 
 
-def test_workflow_rollback_when_time_engine_fails_on_completion():
+def test_workflow_rollback_when_time_engine_fails_on_completion(employee_factory, job_factory, scope_factory):
     company_id = 7777
-    employee_id = 8888
-    job_id = 1
-    scope_id = 1
+    employee = employee_factory(company_id=company_id)
+    job = job_factory(company_id=company_id)
+    scope = scope_factory(company_id=company_id, job_id=job.id)
+    employee_id = employee.id
+    job_id = job.id
+    scope_id = scope.id
 
     _ensure_no_active(company_id, employee_id)
     headers = _auth_headers(company_id)
@@ -143,7 +146,7 @@ def test_workflow_rollback_when_time_engine_fails_on_completion():
     )
     assert r.status_code == 200
 
-    _insert_active_time_entry(company_id=company_id, employee_id=employee_id)
+    _insert_active_time_entry(company_id=company_id, employee_id=employee_id, job_id=job_id, scope_id=scope_id)
     assert _count_active_time_entries(company_id, employee_id) == 1
 
     r = client.post(

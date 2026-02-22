@@ -84,11 +84,14 @@ def _ensure_no_active(company_id: int, employee_id: int):
         db.close()
 
 
-def test_clock_in_creates_active_time_entry():
+def test_clock_in_creates_active_time_entry(employee_factory, job_factory, scope_factory):
     company_id = 7101
-    employee_id = 8101
-    job_id = 1
-    scope_id = 1
+    employee = employee_factory(company_id=company_id)
+    job = job_factory(company_id=company_id)
+    scope = scope_factory(company_id=company_id, job_id=job.id)
+    employee_id = employee.id
+    job_id = job.id
+    scope_id = scope.id
 
     _ensure_no_active(company_id, employee_id)
 

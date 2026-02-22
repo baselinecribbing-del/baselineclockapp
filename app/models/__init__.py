@@ -17,3 +17,4 @@ __all__ = [
     "TimeEntry",
     "WorkflowExecution",
 ]
+from app.models.event_outbox import EventOutbox
