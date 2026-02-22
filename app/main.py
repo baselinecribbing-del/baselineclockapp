@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.core.logging import configure_logging
+from app.services.outbox_worker import start_outbox_worker_task
 from app.models import employee, job, job_cost_ledger, scope, time_entry, workflow_execution  # noqa: F401
 from app.routers.auth import router as auth_router
 from app.routers.costing import router as costing_router
@@ -20,7 +22,20 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
-    yield
+
+    task = start_outbox_worker_task()
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                # worker crash during shutdown; already logged.
+                pass
 
 
 app = FastAPI(
