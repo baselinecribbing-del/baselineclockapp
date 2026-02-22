@@ -95,7 +95,11 @@ def test_list_time_entries_filters_and_pagination(employee_factory, job_factory,
     assert r2.status_code == 200, r2.text
 
     # filter by employee_id
-    only_e1 = client.get(f"/time_entries?employee_id={e1.id}", headers=headers)
+    only_e1 = client.get(
+        "/time_entries",
+        params={"employee_id": e1.id},
+        headers=headers,
+    )
     assert only_e1.status_code == 200, only_e1.text
     data = only_e1.json()
     assert len(data) == 1
@@ -127,3 +131,93 @@ def test_list_time_entries_filters_and_pagination(employee_factory, job_factory,
 
     assert d1[0]["time_entry_id"] != d2[0]["time_entry_id"]
 
+
+
+def test_list_time_entries_rejects_invalid_status(employee_factory, job_factory, scope_factory):
+    company_id = 1
+    headers = _auth_headers(company_id)
+
+    e1 = employee_factory(company_id=company_id)
+    j = job_factory(company_id=company_id)
+    s = scope_factory(company_id=company_id, job_id=j.id)
+
+    now = datetime.now(timezone.utc)
+
+    r1 = client.post(
+        "/time_entries/clock_in",
+        json={"employee_id": e1.id, "job_id": j.id, "scope_id": s.id, "started_at": now.isoformat()},
+        headers=headers,
+    )
+    assert r1.status_code == 200, r1.text
+
+    bad = client.get(
+        "/time_entries",
+        params={"status": "garbage"},
+        headers=headers,
+    )
+    assert bad.status_code == 422, bad.text
+
+
+def test_list_time_entries_filters_by_status(employee_factory, job_factory, scope_factory):
+    company_id = 1
+    headers = _auth_headers(company_id)
+
+    e_active = employee_factory(company_id=company_id)
+    e_completed = employee_factory(company_id=company_id)
+    j = job_factory(company_id=company_id)
+    s = scope_factory(company_id=company_id, job_id=j.id)
+
+    now = datetime.now(timezone.utc)
+
+    r_active = client.post(
+        "/time_entries/clock_in",
+        json={
+            "employee_id": e_active.id,
+            "job_id": j.id,
+            "scope_id": s.id,
+            "started_at": (now - timedelta(hours=2)).isoformat(),
+        },
+        headers=headers,
+    )
+    assert r_active.status_code == 200, r_active.text
+
+    r_completed_in = client.post(
+        "/time_entries/clock_in",
+        json={
+            "employee_id": e_completed.id,
+            "job_id": j.id,
+            "scope_id": s.id,
+            "started_at": (now - timedelta(hours=1)).isoformat(),
+        },
+        headers=headers,
+    )
+    assert r_completed_in.status_code == 200, r_completed_in.text
+
+    r_completed_out = client.post(
+        "/time_entries/clock_out",
+        json={"employee_id": e_completed.id, "ended_at": now.isoformat()},
+        headers=headers,
+    )
+    assert r_completed_out.status_code == 200, r_completed_out.text
+
+    active_listing = client.get(
+        "/time_entries",
+        params={"status": "active"},
+        headers=headers,
+    )
+    assert active_listing.status_code == 200, active_listing.text
+    active_data = active_listing.json()
+    assert len(active_data) == 1
+    assert active_data[0]["employee_id"] == e_active.id
+    assert active_data[0]["status"] == "active"
+
+    completed_listing = client.get(
+        "/time_entries",
+        params={"status": "completed"},
+        headers=headers,
+    )
+    assert completed_listing.status_code == 200, completed_listing.text
+    completed_data = completed_listing.json()
+    assert len(completed_data) == 1
+    assert completed_data[0]["employee_id"] == e_completed.id
+    assert completed_data[0]["status"] == "completed"

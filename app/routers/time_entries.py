@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -66,7 +66,7 @@ def list_time_entries(
     employee_id: Optional[int] = None,
     job_id: Optional[int] = None,
     scope_id: Optional[int] = None,
-    status: Optional[str] = None,
+    status: Optional[Literal["active", "completed"]] = None,
     started_at_from: Optional[datetime] = None,
     started_at_to: Optional[datetime] = None,
     limit: int = Query(default=50, ge=1, le=100),
@@ -86,7 +86,7 @@ def list_time_entries(
         if scope_id is not None:
             q = q.filter(TimeEntry.scope_id == int(scope_id))
         if status is not None:
-            q = q.filter(TimeEntry.status == str(status))
+            q = q.filter(TimeEntry.status == status)
         if started_at_from is not None:
             q = q.filter(TimeEntry.started_at >= started_at_from)
         if started_at_to is not None:
