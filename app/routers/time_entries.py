@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.database import SessionLocal
 from app.deps.auth import require_auth
 from app.models.time_entry import TimeEntry
+from app.models.event_outbox import EventOutbox
 from app.services import time_engine_v10
 
 router = APIRouter(
@@ -125,6 +126,7 @@ def clock_in_endpoint(
             started_at=started_at,
             db=db,
         )
+        db.flush()
         db.commit()
         db.refresh(entry)
         return _to_response(entry)
@@ -158,6 +160,24 @@ def clock_out_endpoint(
             ended_at=ended_at,
             db=db,
         )
+        # durable outbox (same transaction as clock_out)
+        db.add(
+            EventOutbox(
+                company_id=int(x_company_id),
+                event_type="TIME_ENTRY_CLOCKED_OUT",
+                idempotency_key=f"time_entry:{entry.time_entry_id}:clock_out",
+                payload={
+                    "time_entry_id": entry.time_entry_id,
+                    "employee_id": entry.employee_id,
+                    "job_id": entry.job_id,
+                    "scope_id": entry.scope_id,
+                    "started_at": entry.started_at.isoformat() if entry.started_at else None,
+                    "ended_at": entry.ended_at.isoformat() if entry.ended_at else None,
+                    "status": entry.status,
+                },
+            )
+        )
+
         db.commit()
         db.refresh(entry)
         return _to_response(entry)
