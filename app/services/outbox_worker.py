@@ -64,7 +64,7 @@ async def outbox_worker_loop(*, poll_seconds: float = 1.0, batch_size: int = 50)
                 work_db.commit()
             except Exception:
                 work_db.rollback()
-                logger.exception("Outbox worker tick failed")
+                logger.exception("Outbox worker tick failed", extra={"component": "outbox_worker"})
             finally:
                 work_db.close()
 

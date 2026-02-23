@@ -86,8 +86,7 @@ def process_outbox_batch(
         rows = (
             db.query(EventOutbox)
             .filter(EventOutbox.processed.is_(False))
-            .filter(EventOutbox.retry_count < max_retries)
-            .order_by(EventOutbox.id.asc())
+                        .order_by(EventOutbox.id.asc())
             .with_for_update(skip_locked=True)
             .limit(batch_size)
             .all()
@@ -110,9 +109,34 @@ def process_outbox_batch(
                 processed += 1
             except Exception:
                 row.retry_count = (row.retry_count or 0) + 1
-                db.flush()
-                failed += 1
-                logger.exception("Outbox row processing failed", extra={"event_outbox_id": row.id, "event_type": row.event_type})
+
+                # Dead-letter (quarantine) after max_retries: mark processed so it won't loop forever.
+                if row.retry_count >= max_retries:
+                    row.processed = True
+                    row.processed_at = now
+                    db.flush()
+                    failed += 1
+                    logger.exception(
+                        "Outbox row dead-lettered after max retries",
+                        extra={
+                            "event_outbox_id": row.id,
+                            "event_type": row.event_type,
+                            "retry_count": int(row.retry_count),
+                            "max_retries": int(max_retries),
+                        },
+                    )
+                else:
+                    db.flush()
+                    failed += 1
+                    logger.exception(
+                        "Outbox row processing failed",
+                        extra={
+                            "event_outbox_id": row.id,
+                            "event_type": row.event_type,
+                            "retry_count": int(row.retry_count),
+                            "max_retries": int(max_retries),
+                        },
+                    )
 
         if owns_db:
             db.commit()
