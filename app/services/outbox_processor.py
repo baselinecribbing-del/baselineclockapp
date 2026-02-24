@@ -44,8 +44,8 @@ OutboxHandler = Callable[[EventOutbox, Session], None]
 
 def _default_handlers() -> Dict[str, OutboxHandler]:
     from app.services.outbox_handlers import (
-        handle_payroll_run_posted,
         handle_time_entry_clocked_out,
+        handle_payroll_run_posted,
     )
 
     return {
