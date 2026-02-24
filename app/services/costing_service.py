@@ -64,12 +64,7 @@ def post_labor_costs(company_id: int, payroll_run_id: str) -> Dict[str, Any]:
     """
     db = SessionLocal()
     try:
-<<<<<<< HEAD
         required = ["pay_period", "payroll_run", "payroll_items", "time_entries", "job_cost_ledger"]
-=======
-        # Required tables not present in this repo yet
-        required = ["remittance_snapshots", "pay_period", "payroll_items", "time_entries"]
->>>>>>> 6243e34 (feat: add payroll_item model and costing service scaffolding)
         for t in required:
             if not _table_exists(db, t):
                 raise ValueError(f"Missing required table: {t}")
