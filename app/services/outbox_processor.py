@@ -43,12 +43,14 @@ OutboxHandler = Callable[[EventOutbox, Session], None]
 
 
 def _default_handlers() -> Dict[str, OutboxHandler]:
-    # TODO: replace with real publishers (webhooks, workflow engine, etc.)
-    def _noop_success(_row: EventOutbox, _db: Session) -> None:
-        return
+    from app.services.outbox_handlers import (
+        handle_payroll_run_posted,
+        handle_time_entry_clocked_out,
+    )
 
     return {
-        "TIME_ENTRY_CLOCKED_OUT": _noop_success,
+        "TIME_ENTRY_CLOCKED_OUT": handle_time_entry_clocked_out,
+        "PAYROLL_RUN_POSTED": handle_payroll_run_posted,
     }
 
 
