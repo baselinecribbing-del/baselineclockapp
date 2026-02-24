@@ -12,7 +12,25 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
-        return json.dumps(payload)
+
+        # Include structured "extra" fields passed to logger.*(..., extra={...})
+        standard = {
+            "name","msg","args","levelname","levelno","pathname","filename","module",
+            "exc_info","exc_text","stack_info","lineno","funcName","created","msecs",
+            "relativeCreated","thread","threadName","processName","process",
+        }
+        extras = {k: v for k, v in record.__dict__.items() if k not in standard}
+        if extras:
+            payload["extra"] = extras
+
+        # Include exception traceback for logger.exception(...)
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+
+        if record.stack_info:
+            payload["stack_info"] = record.stack_info
+
+        return json.dumps(payload, default=str)
 
 
 def configure_logging() -> None:
