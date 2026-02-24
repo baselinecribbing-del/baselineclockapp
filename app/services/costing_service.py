@@ -35,7 +35,7 @@ def post_labor_costs(company_id: int, pay_period_id: int) -> Dict[str, Any]:
     db = SessionLocal()
     try:
         # Required tables not present in this repo yet
-        required = ["remittance_snapshots", "pay_periods", "payroll_items", "time_entries"]
+        required = ["remittance_snapshots", "pay_period", "payroll_items", "time_entries"]
         for t in required:
             if not _table_exists(db, t):
                 raise ValueError("Payroll tables not present: cannot post labor costs yet")
