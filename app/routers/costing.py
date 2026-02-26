@@ -8,6 +8,7 @@ from app.core.authorization import Role, require_role
 from app.database import SessionLocal
 from app.models.job_cost_ledger import JobCostLedger
 from app.services import costing_service
+from app.services.ledger_reporting_service import job_cost_totals
 
 router = APIRouter(prefix="/costing", tags=["Costing"])
 
@@ -86,5 +87,34 @@ def get_job_ledger(
                 for r in rows
             ],
         }
+    finally:
+        db.close()
+
+
+@router.get("/ledger/totals")
+def get_ledger_totals(
+    request: Request,
+    date_start: datetime,
+    date_end: datetime,
+    job_id: Optional[int] = None,
+    scope_id: Optional[int] = None,
+    employee_id: Optional[int] = None,
+    cost_category: Optional[str] = None,
+    source_type: Optional[str] = None,
+    _role=Depends(require_role(Role.MANAGER)),
+):
+    db = SessionLocal()
+    try:
+        return job_cost_totals(
+            company_id=int(request.state.company_id),
+            date_start=date_start,
+            date_end=date_end,
+            db=db,
+            job_id=job_id,
+            scope_id=scope_id,
+            employee_id=employee_id,
+            cost_category=cost_category,
+            source_type=source_type,
+        )
     finally:
         db.close()
