@@ -35,4 +35,4 @@ def handle_payroll_run_posted(row: EventOutbox, db: Session) -> None:
     # Import inside handler to avoid circular imports.
     from app.services.costing_service import post_labor_costs
 
-    post_labor_costs(company_id=row.company_id, payroll_run_id=str(payroll_run_id), db=db)
+    post_labor_costs(company_id=int(row.company_id), payroll_run_id=str(payroll_run_id), db=db)
