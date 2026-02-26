@@ -11,26 +11,6 @@ from app.models.event_outbox import EventOutbox
 
 logger = logging.getLogger(__name__)
 
-# Deterministic exponential backoff (no jitter).
-# attempt=0 => 0s, attempt=1 => 2s, attempt=2 => 4s, attempt=3 => 8s ... capped.
-def _backoff_seconds(attempt: int, *, base: int = 2, cap_seconds: int = 300) -> int:
-    if attempt <= 0:
-        return 0
-    secs = base ** attempt
-    return min(secs, cap_seconds)
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _due(created_at: datetime, retry_count: int, now: datetime) -> bool:
-    # created_at is stored tz-aware (timestamptz). Ensure now is tz-aware.
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
-    wait = timedelta(seconds=_backoff_seconds(retry_count))
-    return now >= (created_at + wait)
-
 
 @dataclass(frozen=True)
 class OutboxProcessResult:
@@ -38,15 +18,51 @@ class OutboxProcessResult:
     failed: int
 
 
-# Event handlers receive the outbox row and a db session.
 OutboxHandler = Callable[[EventOutbox, Session], None]
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _retry_wait(retry_count: int) -> timedelta:
+    """Deterministic exponential backoff for outbox retries.
+
+    Contract (tests):
+      - retry_count <= 0 => 0s
+      - retry_count == 1 => 2s
+      - retry_count == 2 => 4s
+      - retry_count == 3 => 8s
+    Capped at 60s.
+    """
+    n = int(retry_count) if retry_count is not None else 0
+    if n <= 0:
+        return timedelta(seconds=0)
+
+    seconds = 2 ** n
+    if seconds > 60:
+        seconds = 60
+    return timedelta(seconds=seconds)
+
+
+def _due(created_at: datetime, retry_count: int, now: datetime) -> bool:
+    """Timezone-normalized due check. Naive datetimes treated as UTC."""
+
+    def _to_utc_aware(dt: datetime) -> datetime:
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    created_at_utc = _to_utc_aware(created_at)
+    now_utc = _to_utc_aware(now)
+
+    return now_utc >= (created_at_utc + _retry_wait(retry_count))
+
+
 def _default_handlers() -> Dict[str, OutboxHandler]:
-    # Import inside the factory to avoid any possibility of circular imports.
     from app.services.outbox_handlers import (
-        handle_time_entry_clocked_out,
         handle_payroll_run_posted,
+        handle_time_entry_clocked_out,
     )
 
     return {
@@ -63,14 +79,6 @@ def process_outbox_batch(
     max_retries: int = 10,
     handlers: Optional[Dict[str, OutboxHandler]] = None,
 ) -> OutboxProcessResult:
-    """
-    Deterministically processes up to batch_size pending outbox rows.
-
-    Retry discipline:
-      - A row is eligible when now >= created_at + backoff(retry_count)
-      - On failure: retry_count increments (capped by max_retries)
-      - On success: processed=true, processed_at=now
-    """
     owns_db = db is None
     if owns_db:
         db = SessionLocal()
@@ -85,11 +93,10 @@ def process_outbox_batch(
     failed = 0
 
     try:
-        # Select rows and lock them so we can run multiple workers safely later.
         rows = (
             db.query(EventOutbox)
             .filter(EventOutbox.processed.is_(False))
-                        .order_by(EventOutbox.id.asc())
+            .order_by(EventOutbox.id.asc())
             .with_for_update(skip_locked=True)
             .limit(batch_size)
             .all()
@@ -100,6 +107,7 @@ def process_outbox_batch(
                 continue
 
             handler = handlers.get(row.event_type)
+
             try:
                 if handler is None:
                     raise ValueError(f"Unknown event_type: {row.event_type}")
@@ -110,41 +118,31 @@ def process_outbox_batch(
                 row.processed_at = now
                 db.flush()
                 processed += 1
-            except Exception:
-                row.retry_count = (row.retry_count or 0) + 1
 
-                # Dead-letter (quarantine) after max_retries: mark processed so it won't loop forever.
-                if row.retry_count >= max_retries:
+            except Exception:
+                row.retry_count = int(row.retry_count or 0) + 1
+
+                if int(row.retry_count) >= int(max_retries):
                     row.processed = True
                     row.processed_at = now
-                    db.flush()
-                    failed += 1
-                    logger.exception(
-                        "Outbox row dead-lettered after max retries",
-                        extra={
-                            "event_outbox_id": row.id,
-                            "event_type": row.event_type,
-                            "retry_count": int(row.retry_count),
-                            "max_retries": int(max_retries),
-                        },
-                    )
-                else:
-                    db.flush()
-                    failed += 1
-                    logger.exception(
-                        "Outbox row processing failed",
-                        extra={
-                            "event_outbox_id": row.id,
-                            "event_type": row.event_type,
-                            "retry_count": int(row.retry_count),
-                            "max_retries": int(max_retries),
-                        },
-                    )
+
+                db.flush()
+                failed += 1
+                logger.exception(
+                    "Outbox row processing failed",
+                    extra={
+                        "event_outbox_id": row.id,
+                        "event_type": row.event_type,
+                        "retry_count": int(row.retry_count),
+                        "max_retries": int(max_retries),
+                    },
+                )
 
         if owns_db:
             db.commit()
 
         return OutboxProcessResult(processed=processed, failed=failed)
+
     except Exception:
         if owns_db:
             db.rollback()
@@ -155,8 +153,6 @@ def process_outbox_batch(
 
 
 def try_acquire_outbox_lock(db: Session) -> bool:
-    # Two-int advisory lock key. Keep stable forever.
-    # Prevents double-processing under uvicorn --reload (two processes).
     res = db.execute(text("select pg_try_advisory_lock(4242, 4243)")).scalar()
     return bool(res)
 
