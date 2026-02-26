@@ -30,5 +30,18 @@ def handle_payroll_run_posted(row: EventOutbox, db: Session) -> None:
         return
 
     from app.services.costing_service import post_labor_costs
+    from app.services.reconciliation_service import reconcile_payroll_run_labor
 
-    post_labor_costs(company_id=int(row.company_id), payroll_run_id=payroll_run_id, db=db)
+    # Post ledger rows
+    post_labor_costs(
+        company_id=int(row.company_id),
+        payroll_run_id=payroll_run_id,
+        db=db,
+    )
+
+    # Enforce reconciliation (raises on mismatch)
+    reconcile_payroll_run_labor(
+        company_id=int(row.company_id),
+        payroll_run_id=payroll_run_id,
+        db=db,
+    )
