@@ -17,19 +17,23 @@ class ProductionPostRequest(BaseModel):
     date_end: datetime
 
 
-@router.post("/post/labor/{pay_period_id}")
-def post_labor(
-    pay_period_id: int,
+@router.post("/post/labor/run/{payroll_run_id}")
+def post_labor_for_run(
+    payroll_run_id: str,
     request: Request,
     _role=Depends(require_role(Role.MANAGER)),
 ):
+    db = SessionLocal()
     try:
         return costing_service.post_labor_costs(
             company_id=int(request.state.company_id),
-            pay_period_id=pay_period_id,
+            payroll_run_id=str(payroll_run_id),
+            db=db,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        db.close()
 
 
 @router.post("/post/production")
@@ -38,14 +42,8 @@ def post_production(
     request: Request,
     _role=Depends(require_role(Role.MANAGER)),
 ):
-    try:
-        return costing_service.post_production_costs(
-            company_id=int(request.state.company_id),
-            date_start=payload.date_start,
-            date_end=payload.date_end,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Placeholder: not implemented in this repo state.
+    raise HTTPException(status_code=501, detail="Not implemented")
 
 
 @router.get("/job/{job_id}/ledger")
