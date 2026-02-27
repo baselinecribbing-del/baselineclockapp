@@ -52,6 +52,8 @@ def get_job_ledger(
     job_id: int,
     request: Request,
     scope_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0,
     _role=Depends(require_role(Role.MANAGER)),
 ):
     db = SessionLocal()
@@ -63,11 +65,18 @@ def get_job_ledger(
         if scope_id is not None:
             q = q.filter(JobCostLedger.scope_id == int(scope_id))
 
-        rows = q.order_by(JobCostLedger.posting_date.asc(), JobCostLedger.id.asc()).all()
+        rows = (
+            q.order_by(JobCostLedger.posting_date.asc(), JobCostLedger.id.asc())
+            .limit(int(limit))
+            .offset(int(offset))
+            .all()
+        )
 
         return {
             "job_id": int(job_id),
             "scope_id": scope_id,
+            "limit": int(limit),
+            "offset": int(offset),
             "rows": [
                 {
                     "id": r.id,
