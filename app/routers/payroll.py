@@ -1,6 +1,7 @@
-from typing import Optional
+from typing import Any, Optional, Union, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -12,13 +13,70 @@ from app.models.payroll_run import PayrollRun
 router = APIRouter(prefix="/payroll", tags=["Payroll"])
 
 
-@router.get("/runs")
+class PayrollRunRow(BaseModel):
+    payroll_run_id: str
+    company_id: int
+    pay_period_id: str
+    status: str
+    posted_at: Optional[str]
+    created_at: Optional[str]
+
+
+class PayrollRunsResponse(BaseModel):
+    limit: int
+    offset: int
+    rows: list[PayrollRunRow]
+
+
+class PayrollRunDetail(BaseModel):
+    payroll_run_id: str
+    company_id: int
+    pay_period_id: str
+    status: str
+    posted_at: Optional[str]
+    created_at: Optional[str]
+
+
+class PayrollItemRow(BaseModel):
+    id: int
+    company_id: int
+    payroll_run_id: str
+    employee_id: int
+    hours: Optional[str]
+    rate_cents: Optional[int]
+    gross_pay_cents: int
+    meta: Optional[dict[str, Any]]
+    created_at: str
+
+
+class PayrollRunDetailResponse(BaseModel):
+    payroll_run: PayrollRunDetail
+    gross_total_cents: int
+    items: list[PayrollItemRow]
+
+
+class PayrollReconciliationOk(BaseModel):
+    ok: Literal[True]
+    payroll_total_cents: int
+    ledger_total_cents: int
+    delta_cents: int
+
+
+class PayrollReconciliationError(BaseModel):
+    ok: Literal[False]
+    detail: str
+
+
+PayrollReconciliationResponse = Union[PayrollReconciliationOk, PayrollReconciliationError]
+
+
+@router.get("/runs", response_model=PayrollRunsResponse)
 def list_payroll_runs(
     request: Request,
     status: Optional[str] = None,
     pay_period_id: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=1_000_000),
     _role=Depends(require_role(Role.MANAGER)),
 ):
     db: Session = SessionLocal()
@@ -57,7 +115,7 @@ def list_payroll_runs(
         db.close()
 
 
-@router.get("/runs/{payroll_run_id}")
+@router.get("/runs/{payroll_run_id}", response_model=PayrollRunDetailResponse)
 def get_payroll_run(
     payroll_run_id: str,
     request: Request,
@@ -118,7 +176,8 @@ def get_payroll_run(
     finally:
         db.close()
 
-@router.get("/runs/{payroll_run_id}/reconciliation")
+
+@router.get("/runs/{payroll_run_id}/reconciliation", response_model=PayrollReconciliationResponse)
 def get_payroll_reconciliation(
     payroll_run_id: str,
     request: Request,
@@ -128,20 +187,13 @@ def get_payroll_reconciliation(
 
     db: Session = SessionLocal()
     try:
-        # We call the service but catch mismatch to report status instead of raising.
         try:
-            result = reconcile_payroll_run_labor(
+            return reconcile_payroll_run_labor(
                 company_id=int(request.state.company_id),
                 payroll_run_id=str(payroll_run_id),
                 db=db,
             )
-            return result
         except ValueError as exc:
-            # Extract numbers from message if possible
-            msg = str(exc)
-            return {
-                "ok": False,
-                "detail": msg,
-            }
+            return {"ok": False, "detail": str(exc)}
     finally:
         db.close()

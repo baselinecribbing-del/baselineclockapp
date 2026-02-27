@@ -1,6 +1,6 @@
-from typing import Optional
-
-from fastapi import APIRouter, Depends, Request
+from typing import Optional, Literal
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.authorization import Role, require_role
@@ -10,12 +10,28 @@ from app.models.event_outbox import EventOutbox
 router = APIRouter(prefix="/outbox", tags=["Outbox"])
 
 
-@router.get("")
+class OutboxRow(BaseModel):
+    id: int
+    company_id: int
+    event_type: str
+    processed: bool
+    retry_count: int
+    created_at: str
+    processed_at: Optional[str]
+
+
+class OutboxListResponse(BaseModel):
+    limit: int
+    offset: int
+    rows: list[OutboxRow]
+
+
+@router.get("", response_model=OutboxListResponse)
 def list_outbox(
     request: Request,
     processed: Optional[bool] = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=1_000_000),
     _role=Depends(require_role(Role.MANAGER)),
 ):
     db: Session = SessionLocal()
