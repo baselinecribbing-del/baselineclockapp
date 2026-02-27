@@ -132,11 +132,7 @@ def get_job_ledger(
         db.close()
 
 
-feat/api-contracts-costing
 @router.get("/ledger/totals", response_model=LedgerTotalsResponse)
-=======
-@router.get("/ledger/totals")
-main
 def get_ledger_totals(
     request: Request,
     date_start: datetime,
