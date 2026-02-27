@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Optional
-
-from fastapi import APIRouter, Depends, Request, HTTPException
+from typing import Optional, Any
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.core.authorization import Role, require_role
 from app.database import SessionLocal
@@ -13,10 +13,51 @@ from app.services.ledger_reporting_service import job_cost_totals
 router = APIRouter(prefix="/costing", tags=["Costing"])
 
 
-class ProductionPostRequest(BaseModel):
-    date_start: datetime
-    date_end: datetime
+# ---------- Ledger Row Models ----------
 
+class LedgerRow(BaseModel):
+    id: int
+    company_id: int
+    job_id: int
+    scope_id: Optional[int]
+    employee_id: Optional[int]
+    source_type: str
+    source_reference_id: str
+    cost_category: str
+    quantity: Optional[str]
+    unit_cost_cents: Optional[int]
+    total_cost_cents: int
+    posting_date: str
+    created_at: str
+
+
+class LedgerResponse(BaseModel):
+    job_id: int
+    scope_id: Optional[int]
+    limit: int
+    offset: int
+    rows: list[LedgerRow]
+
+
+# ---------- Totals Models ----------
+
+class LedgerTotalsGroup(BaseModel):
+    job_id: int
+    scope_id: Optional[int]
+    employee_id: Optional[int]
+    row_count: int
+    total_cost_cents: int
+
+
+class LedgerTotalsResponse(BaseModel):
+    company_id: int
+    date_start: str
+    date_end: str
+    filters: dict[str, Any]
+    groups: list[LedgerTotalsGroup]
+
+
+# ---------- Endpoints ----------
 
 @router.post("/post/labor/run/{payroll_run_id}")
 def post_labor_for_run(
@@ -37,21 +78,13 @@ def post_labor_for_run(
         db.close()
 
 
-@router.post("/post/production")
-def post_production(
-    payload: ProductionPostRequest,
-    request: Request,
-    _role=Depends(require_role(Role.MANAGER)),
-):
-    # Placeholder: not implemented in this repo state.
-    raise HTTPException(status_code=501, detail="Not implemented")
-
-
-@router.get("/job/{job_id}/ledger")
+@router.get("/job/{job_id}/ledger", response_model=LedgerResponse)
 def get_job_ledger(
     job_id: int,
     request: Request,
     scope_id: Optional[int] = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=1_000_000),
     _role=Depends(require_role(Role.MANAGER)),
 ):
     db = SessionLocal()
@@ -60,14 +93,22 @@ def get_job_ledger(
             JobCostLedger.company_id == int(request.state.company_id),
             JobCostLedger.job_id == int(job_id),
         )
+
         if scope_id is not None:
             q = q.filter(JobCostLedger.scope_id == int(scope_id))
 
-        rows = q.order_by(JobCostLedger.posting_date.asc(), JobCostLedger.id.asc()).all()
+        rows = (
+            q.order_by(JobCostLedger.posting_date.asc(), JobCostLedger.id.asc())
+            .limit(int(limit))
+            .offset(int(offset))
+            .all()
+        )
 
         return {
             "job_id": int(job_id),
             "scope_id": scope_id,
+            "limit": int(limit),
+            "offset": int(offset),
             "rows": [
                 {
                     "id": r.id,
@@ -91,7 +132,7 @@ def get_job_ledger(
         db.close()
 
 
-@router.get("/ledger/totals")
+@router.get("/ledger/totals", response_model=LedgerTotalsResponse)
 def get_ledger_totals(
     request: Request,
     date_start: datetime,

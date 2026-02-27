@@ -14,6 +14,8 @@ from app.routers.employees import router as employees_router
 from app.routers.jobs import router as jobs_router
 from app.routers.scopes import router as scopes_router
 from app.routers.time_entries import router as time_entries_router
+from app.routers.payroll import router as payroll_router
+from app.routers.outbox import router as outbox_router
 from app.routers.workflow_preview import router as preview_router
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,8 @@ async def catch_unhandled_exceptions(request: Request, call_next):
 app.include_router(auth_router)
 app.include_router(preview_router)
 app.include_router(time_entries_router)
+app.include_router(payroll_router)
+app.include_router(outbox_router)
 app.include_router(costing_router)
 app.include_router(employees_router)
 app.include_router(jobs_router)

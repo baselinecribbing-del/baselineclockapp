@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, Optional
 
-from sqlalchemy import text
+from sqlalchemy import case, func, text
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
@@ -39,7 +39,7 @@ def _retry_wait(retry_count: int) -> timedelta:
     if n <= 0:
         return timedelta(seconds=0)
 
-    seconds = 2 ** n
+    seconds = 2**n
     if seconds > 60:
         seconds = 60
     return timedelta(seconds=seconds)
@@ -71,6 +71,28 @@ def _default_handlers() -> Dict[str, OutboxHandler]:
     }
 
 
+def _is_due_clause(now: datetime):
+    """
+    SQL-side due filter (Postgres).
+
+    Key property: apply due check BEFORE LIMIT so not-due rows don't starve due rows.
+    wait_seconds:
+      retry_count <= 0 -> 0
+      else -> least(60, 2^retry_count)
+    due_at := created_at + wait_seconds seconds
+    """
+    retry_count = func.coalesce(EventOutbox.retry_count, 0)
+
+    wait_seconds = case(
+        (retry_count <= 0, 0),
+        else_=func.least(60, func.power(2, retry_count)),
+    )
+
+    # created_at + (wait_seconds * interval '1 second')
+    due_at = EventOutbox.created_at + (wait_seconds * text("interval '1 second'"))
+    return due_at <= now
+
+
 def process_outbox_batch(
     *,
     db: Optional[Session] = None,
@@ -96,13 +118,15 @@ def process_outbox_batch(
         rows = (
             db.query(EventOutbox)
             .filter(EventOutbox.processed.is_(False))
+            .filter(_is_due_clause(now))
             .order_by(EventOutbox.id.asc())
             .with_for_update(skip_locked=True)
-            .limit(batch_size)
+            .limit(int(batch_size))
             .all()
         )
 
         for row in rows:
+            # Keep python-side guard as defense-in-depth (should be redundant with SQL filter).
             if not _due(row.created_at, row.retry_count, now):
                 continue
 
