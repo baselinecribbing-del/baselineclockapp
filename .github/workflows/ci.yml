@@ -59,3 +59,36 @@ jobs:
 
       - name: Run tests
         run: pytest -q
+
+      - name: API smoke
+        env:
+          PORT: "8010"
+          BASE_URL: "http://127.0.0.1:8010"
+        run: |
+          set -euo pipefail
+
+          # Start API server in background
+          uvicorn app.main:app --host 127.0.0.1 --port "$PORT" &
+          SERVER_PID=$!
+
+          cleanup() {
+            kill "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          # Wait for /docs to come up (max ~10s)
+          for i in $(seq 1 50); do
+            if curl -fsS "$BASE_URL/docs" >/dev/null; then
+              echo "SERVER_OK"
+              break
+            fi
+            sleep 0.2
+          done
+
+          # Fail if server never became reachable
+          curl -fsS "$BASE_URL/docs" >/dev/null
+
+          # Run API smoke script
+          chmod +x scripts/smoke_api.sh
+          ./scripts/smoke_api.sh
