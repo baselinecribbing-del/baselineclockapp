@@ -1,6 +1,9 @@
 from typing import Any, Optional, Union, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from app.models.event_outbox import EventOutbox
+from fastapi import HTTPException
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -195,5 +198,53 @@ def get_payroll_reconciliation(
             )
         except ValueError as exc:
             return {"ok": False, "detail": str(exc)}
+    finally:
+        db.close()
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@router.post("/runs/{payroll_run_id}/post")
+def post_payroll_run(payroll_run_id: str) -> dict:
+    """
+    Mark a payroll run POSTED and enqueue outbox event PAYROLL_RUN_POSTED.
+    Idempotent: safe to call multiple times.
+    """
+    db: Session = SessionLocal()
+    try:
+        pr = (
+            db.query(PayrollRun)
+            .filter(PayrollRun.payroll_run_id == str(payroll_run_id))
+            .one_or_none()
+        )
+        if pr is None:
+            raise HTTPException(status_code=404, detail="PayrollRun not found")
+
+        if pr.status != "POSTED":
+            pr.status = "POSTED"
+        if pr.posted_at is None:
+            pr.posted_at = _utcnow()
+
+        company_id = int(pr.company_id)
+
+        idempotency_key = f"PAYROLL_RUN_POSTED:{company_id}:{payroll_run_id}"
+        existing = (
+            db.query(EventOutbox)
+            .filter(EventOutbox.company_id == company_id)
+            .filter(EventOutbox.idempotency_key == idempotency_key)
+            .one_or_none()
+        )
+        if existing is None:
+            db.add(
+                EventOutbox(
+                    company_id=company_id,
+                    event_type="PAYROLL_RUN_POSTED",
+                    idempotency_key=idempotency_key,
+                    payload={"payroll_run_id": str(payroll_run_id)},
+                )
+            )
+
+        db.commit()
+        return {"ok": True, "payroll_run_id": str(payroll_run_id), "status": "POSTED"}
     finally:
         db.close()
