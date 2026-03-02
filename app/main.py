@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.logging import configure_logging
-from app.models import employee, job, job_cost_ledger, scope, time_entry, workflow_execution  # noqa: F401
+from app.models import employee, job, job_cost_ledger, scope, schedule, time_entry, workflow_execution  # noqa: F401
 from app.routers.auth import router as auth_router
 from app.routers.costing import router as costing_router
 from app.routers.employees import router as employees_router
@@ -17,6 +17,7 @@ from app.routers.jobs import router as jobs_router
 from app.routers.outbox import router as outbox_router
 from app.routers.payroll import router as payroll_router
 from app.routers.scopes import router as scopes_router
+from app.routers.schedules import router as schedules_router
 from app.routers.time_entries import router as time_entries_router
 from app.routers.workflow_preview import router as preview_router
 from app.services.outbox_worker import start_outbox_worker_task
@@ -80,6 +81,7 @@ app.include_router(costing_router)
 app.include_router(employees_router)
 app.include_router(jobs_router)
 app.include_router(scopes_router)
+app.include_router(schedules_router)
 
 # ---- Debug (dev only, hardened) ----
 # Enable ONLY in local dev. Requirements:
