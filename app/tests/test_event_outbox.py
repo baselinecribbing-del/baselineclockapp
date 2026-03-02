@@ -105,9 +105,13 @@ def test_outbox_is_tenant_scoped(employee_factory, job_factory, scope_factory):
     try:
         c1_rows = db.query(EventOutbox).filter(EventOutbox.company_id == c1).all()
         c2_rows = db.query(EventOutbox).filter(EventOutbox.company_id == c2).all()
-        assert len(c1_rows) == 1
-        assert len(c2_rows) == 1
-        assert c1_rows[0].company_id != c2_rows[0].company_id
+
+        # clock_in enqueues TIME_ENTRY_CLOCKED_IN; clock_out enqueues TIME_ENTRY_CLOCKED_OUT
+        assert len(c1_rows) == 2
+        assert len(c2_rows) == 2
+
+        assert {r.event_type for r in c1_rows} == {"TIME_ENTRY_CLOCKED_IN", "TIME_ENTRY_CLOCKED_OUT"}
+        assert {r.event_type for r in c2_rows} == {"TIME_ENTRY_CLOCKED_IN", "TIME_ENTRY_CLOCKED_OUT"}
     finally:
         db.close()
 

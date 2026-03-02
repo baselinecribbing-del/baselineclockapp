@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Integer, String
+from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text
 
 from app.database import Base
 
@@ -16,5 +16,11 @@ class TimeEntry(Base):
 
     started_at = Column(DateTime, nullable=False)
     ended_at = Column(DateTime, nullable=True)
+    clock_in_lat = Column(Numeric(9, 6), nullable=True)
+    clock_in_lng = Column(Numeric(9, 6), nullable=True)
+    clock_in_accuracy_m = Column(Integer, nullable=True)
+    clock_in_distance_m = Column(Integer, nullable=True)
+    clock_in_address = Column(Text, nullable=True)
+    clock_in_address_source = Column(Text, nullable=True)
 
     status = Column(String, nullable=False, index=True)
