@@ -29,7 +29,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     configure_logging()
 
-    task = start_outbox_worker_task()
+    if os.getenv("RUN_OUTBOX_WORKER", "0") == "1":
+        task = start_outbox_worker_task()
+    else:
+        task = None
     try:
         yield
     finally:
