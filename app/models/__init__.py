@@ -5,6 +5,7 @@ from app.models.pay_period import PayPeriod
 from app.models.payroll_item import PayrollItem
 from app.models.payroll_run import PayrollRun
 from app.models.scope import Scope
+from app.models.schedule import Schedule
 from app.models.time_entry import TimeEntry
 from app.models.workflow_execution import WorkflowExecution
 
@@ -16,6 +17,7 @@ __all__ = [
     "PayrollItem",
     "PayrollRun",
     "Scope",
+    "Schedule",
     "TimeEntry",
     "WorkflowExecution",
 ]
