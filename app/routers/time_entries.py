@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
@@ -8,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.database import SessionLocal
 from app.deps.auth import require_auth
+from app.models.job import Job
 from app.models.time_entry import TimeEntry
 from app.models.event_outbox import EventOutbox
 from app.services import time_engine_v10
@@ -22,6 +24,9 @@ class ClockInRequest(BaseModel):
     employee_id: int
     job_id: int
     scope_id: int
+    clock_in_lat: Optional[float] = None
+    clock_in_lng: Optional[float] = None
+    clock_in_accuracy_m: Optional[int] = None
     started_at: Optional[datetime] = Field(
         default=None,
         description="If omitted, server uses current UTC time.",
@@ -45,6 +50,12 @@ class TimeEntryResponse(BaseModel):
     status: str
     started_at: datetime
     ended_at: Optional[datetime]
+    clock_in_lat: Optional[float] = None
+    clock_in_lng: Optional[float] = None
+    clock_in_accuracy_m: Optional[int] = None
+    clock_in_distance_m: Optional[int] = None
+    clock_in_address: Optional[str] = None
+    clock_in_address_source: Optional[str] = None
 
 
 def _to_response(entry: TimeEntry) -> TimeEntryResponse:
@@ -57,7 +68,24 @@ def _to_response(entry: TimeEntry) -> TimeEntryResponse:
         status=entry.status,
         started_at=entry.started_at,
         ended_at=entry.ended_at,
+        clock_in_lat=float(entry.clock_in_lat) if entry.clock_in_lat is not None else None,
+        clock_in_lng=float(entry.clock_in_lng) if entry.clock_in_lng is not None else None,
+        clock_in_accuracy_m=entry.clock_in_accuracy_m,
+        clock_in_distance_m=entry.clock_in_distance_m,
+        clock_in_address=entry.clock_in_address,
+        clock_in_address_source=entry.clock_in_address_source,
     )
+
+
+def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
+    r = 6371000.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlng / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return int(round(r * c))
 
 
 @router.get("", response_model=list[TimeEntryResponse])
@@ -119,6 +147,25 @@ def clock_in_endpoint(
 
     db = SessionLocal()
     try:
+        dist: Optional[int] = None
+        job = db.query(Job).filter(Job.company_id == int(x_company_id), Job.id == int(payload.job_id)).first()
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        if job.site_lat is not None and job.site_lng is not None:
+            if payload.clock_in_lat is None or payload.clock_in_lng is None:
+                raise HTTPException(status_code=422, detail="clock_in_lat/clock_in_lng required for geofenced jobs")
+
+            radius_m = job.site_radius_m or 1000
+            dist = _haversine_m(
+                float(payload.clock_in_lat),
+                float(payload.clock_in_lng),
+                float(job.site_lat),
+                float(job.site_lng),
+            )
+            if dist > radius_m:
+                raise HTTPException(status_code=403, detail="Clock-in outside job geofence")
+
         entry = time_engine_v10.clock_in(
             company_id=int(x_company_id),
             employee_id=int(payload.employee_id),
@@ -127,7 +174,30 @@ def clock_in_endpoint(
             started_at=started_at,
             db=db,
         )
-        db.flush()
+        entry.clock_in_lat = payload.clock_in_lat
+        entry.clock_in_lng = payload.clock_in_lng
+        entry.clock_in_accuracy_m = payload.clock_in_accuracy_m
+        entry.clock_in_distance_m = dist if dist is not None else None
+        entry.clock_in_address = None
+        entry.clock_in_address_source = None
+        db.add(
+            EventOutbox(
+                company_id=int(x_company_id),
+                event_type="TIME_ENTRY_CLOCKED_IN",
+                idempotency_key=f"time_entry:{entry.time_entry_id}:clock_in",
+                payload={
+                    "time_entry_id": entry.time_entry_id,
+                    "employee_id": entry.employee_id,
+                    "job_id": entry.job_id,
+                    "scope_id": entry.scope_id,
+                    "started_at": entry.started_at.isoformat() if entry.started_at else None,
+                    "clock_in_lat": entry.clock_in_lat,
+                    "clock_in_lng": entry.clock_in_lng,
+                    "clock_in_accuracy_m": entry.clock_in_accuracy_m,
+                    "clock_in_distance_m": entry.clock_in_distance_m,
+                },
+            )
+        )
         db.commit()
         db.refresh(entry)
         return _to_response(entry)

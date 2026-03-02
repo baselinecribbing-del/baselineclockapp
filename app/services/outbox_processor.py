@@ -62,10 +62,12 @@ def _due(created_at: datetime, retry_count: int, now: datetime) -> bool:
 def _default_handlers() -> Dict[str, OutboxHandler]:
     from app.services.outbox_handlers import (
         handle_payroll_run_posted,
+        handle_time_entry_clocked_in,
         handle_time_entry_clocked_out,
     )
 
     return {
+        "TIME_ENTRY_CLOCKED_IN": handle_time_entry_clocked_in,
         "TIME_ENTRY_CLOCKED_OUT": handle_time_entry_clocked_out,
         "PAYROLL_RUN_POSTED": handle_payroll_run_posted,
     }
