@@ -47,7 +47,7 @@ async def outbox_worker_loop(*, poll_seconds: float = 1.0, batch_size: int = 50)
       - Recover if Postgres restarts / connections are terminated.
     """
     logger.info(
-        "Outbox worker started",
+        "outbox worker started",
         extra={"poll_seconds": float(poll_seconds), "batch_size": int(batch_size)},
     )
 
@@ -80,8 +80,12 @@ async def outbox_worker_loop(*, poll_seconds: float = 1.0, batch_size: int = 50)
                         pass
 
                     now = datetime.now(timezone.utc)
-                    process_outbox_batch(db=work_db, now=now, batch_size=batch_size)
+                    result = process_outbox_batch(db=work_db, now=now, batch_size=batch_size)
                     work_db.commit()
+                    logger.info(
+                        "outbox worker batch",
+                        extra={"processed": int(result.processed), "failed": int(result.failed)},
+                    )
 
                 except asyncio.CancelledError:
                     raise
