@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import math
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.database import SessionLocal
@@ -12,6 +12,7 @@ from app.deps.auth import require_auth
 from app.models.job import Job
 from app.models.time_entry import TimeEntry
 from app.models.event_outbox import EventOutbox
+from app.services.location import haversine_distance_m
 from app.services import time_engine_v10
 
 router = APIRouter(
@@ -75,17 +76,6 @@ def _to_response(entry: TimeEntry) -> TimeEntryResponse:
         clock_in_address=entry.clock_in_address,
         clock_in_address_source=entry.clock_in_address_source,
     )
-
-
-def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
-    r = 6371000.0
-    p1 = math.radians(lat1)
-    p2 = math.radians(lat2)
-    dlat = math.radians(lat2 - lat1)
-    dlng = math.radians(lng2 - lng1)
-    a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlng / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return int(round(r * c))
 
 
 @router.get("", response_model=list[TimeEntryResponse])
@@ -152,19 +142,26 @@ def clock_in_endpoint(
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        if job.site_lat is not None and job.site_lng is not None:
+        if job.site_lat is not None and job.site_lng is not None and job.site_radius_m is not None:
             if payload.clock_in_lat is None or payload.clock_in_lng is None:
-                raise HTTPException(status_code=422, detail="clock_in_lat/clock_in_lng required for geofenced jobs")
+                raise HTTPException(status_code=422, detail="GPS location required for this job")
 
-            radius_m = job.site_radius_m or 1000
-            dist = _haversine_m(
+            radius_m = int(job.site_radius_m)
+            dist = int(round(haversine_distance_m(
                 float(payload.clock_in_lat),
                 float(payload.clock_in_lng),
                 float(job.site_lat),
                 float(job.site_lng),
-            )
+            )))
             if dist > radius_m:
-                raise HTTPException(status_code=403, detail="Clock-in outside job geofence")
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "detail": "Employee outside job geofence",
+                        "distance_m": int(dist),
+                        "radius_m": int(radius_m),
+                    },
+                )
 
         entry = time_engine_v10.clock_in(
             company_id=int(x_company_id),
