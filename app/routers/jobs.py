@@ -10,6 +10,19 @@ from app.schemas.job import JobCreate, JobResponse
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 
+def _to_response(row: Job) -> JobResponse:
+    return JobResponse(
+        id=row.id,
+        company_id=row.company_id,
+        name=row.name,
+        is_active=row.is_active,
+        created_at=row.created_at,
+        site_lat=float(row.site_lat) if row.site_lat is not None else None,
+        site_lng=float(row.site_lng) if row.site_lng is not None else None,
+        site_radius_m=row.site_radius_m,
+    )
+
+
 @router.post("", response_model=JobResponse)
 def create_job(
     payload: JobCreate,
@@ -26,11 +39,14 @@ def create_job(
             company_id=int(request.state.company_id),
             name=payload.name,
             is_active=True,
+            site_lat=payload.site_lat,
+            site_lng=payload.site_lng,
+            site_radius_m=payload.site_radius_m,
         )
         db.add(row)
         db.commit()
         db.refresh(row)
-        return row
+        return _to_response(row)
     finally:
         db.close()
 
@@ -52,7 +68,7 @@ def list_jobs(
             .order_by(Job.id.asc())
             .all()
         )
-        return rows
+        return [_to_response(row) for row in rows]
     finally:
         db.close()
 
@@ -79,6 +95,6 @@ def get_job(
         )
         if row is None:
             raise HTTPException(status_code=404, detail="Job not found")
-        return row
+        return _to_response(row)
     finally:
         db.close()

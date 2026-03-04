@@ -57,7 +57,13 @@ def handle_time_entry_clocked_in(row: EventOutbox, db: Session) -> None:
     if getattr(existing, "clock_in_address", None):
         return
 
-    qs = urllib.parse.urlencode({"latlng": f"{lat_f},{lng_f}", "key": api_key})
+    qs = urllib.parse.urlencode(
+        {
+            "latlng": f"{lat_f},{lng_f}",
+            "key": api_key,
+            "result_type": "street_address",
+        }
+    )
     url = f"https://maps.googleapis.com/maps/api/geocode/json?{qs}"
 
     req = urllib.request.Request(url, method="GET")
@@ -80,11 +86,29 @@ def handle_time_entry_clocked_in(row: EventOutbox, db: Session) -> None:
     if not isinstance(results, list) or not results:
         return
 
-    first = results[0]
-    if not isinstance(first, dict):
-        return
+    selected = None
+    route_fallback = None
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        types = item.get("types")
+        if isinstance(types, list):
+            if "street_address" in types or "premise" in types:
+                selected = item
+                break
+            if route_fallback is None and "route" in types:
+                route_fallback = item
 
-    formatted = first.get("formatted_address")
+    if selected is None:
+        if route_fallback is not None:
+            selected = route_fallback
+        else:
+            first = results[0]
+            if not isinstance(first, dict):
+                return
+            selected = first
+
+    formatted = selected.get("formatted_address")
     if not isinstance(formatted, str) or not formatted.strip():
         return
 
