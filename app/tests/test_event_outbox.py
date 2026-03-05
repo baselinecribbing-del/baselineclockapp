@@ -27,13 +27,24 @@ def test_clock_out_creates_outbox_event(employee_factory, job_factory, scope_fac
     s = scope_factory(company_id=company_id, job_id=j.id)
 
     now = datetime.now(timezone.utc)
+    clock_in_lat = 51.0447
+    clock_in_lng = -114.0719
 
     r_in = client.post(
         "/time_entries/clock_in",
-        json={"employee_id": e.id, "job_id": j.id, "scope_id": s.id, "started_at": now.isoformat()},
+        json={
+            "employee_id": e.id,
+            "job_id": j.id,
+            "scope_id": s.id,
+            "started_at": now.isoformat(),
+            "clock_in_lat": clock_in_lat,
+            "clock_in_lng": clock_in_lng,
+            "clock_in_accuracy_m": 5,
+        },
         headers=headers,
     )
     assert r_in.status_code == 200, r_in.text
+    te_id_in = r_in.json()["time_entry_id"]
 
     r_out = client.post(
         "/time_entries/clock_out",
@@ -45,6 +56,15 @@ def test_clock_out_creates_outbox_event(employee_factory, job_factory, scope_fac
 
     db = SessionLocal()
     try:
+        in_rows = (
+            db.query(EventOutbox)
+            .filter(
+                EventOutbox.company_id == company_id,
+                EventOutbox.event_type == "TIME_ENTRY_CLOCKED_IN",
+                EventOutbox.idempotency_key == f"time_entry:{te_id_in}:clock_in",
+            )
+            .all()
+        )
         rows = (
             db.query(EventOutbox)
             .filter(
@@ -54,6 +74,12 @@ def test_clock_out_creates_outbox_event(employee_factory, job_factory, scope_fac
             )
             .all()
         )
+        assert len(in_rows) == 1
+        assert in_rows[0].payload["time_entry_id"] == te_id_in
+        assert "clock_in_lat" in in_rows[0].payload
+        assert "clock_in_lng" in in_rows[0].payload
+        assert in_rows[0].payload["clock_in_lat"] == clock_in_lat
+        assert in_rows[0].payload["clock_in_lng"] == clock_in_lng
         assert len(rows) == 1
         assert rows[0].payload["time_entry_id"] == te_id
         assert rows[0].processed is False

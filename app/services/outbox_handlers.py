@@ -22,8 +22,15 @@ def handle_time_entry_clocked_in(row: EventOutbox, db: Session) -> None:
     from app.models.time_entry import TimeEntry
 
     api_key = os.getenv("GOOGLE_MAPS_API_KEY", "").strip()
+
     if not api_key:
-        # Deterministic tests/CI: no external call if key isn't set.
+        logger.warning(
+            "clocked_in geocode skipped: missing GOOGLE_MAPS_API_KEY",
+            extra={
+                "event_outbox_id": row.id,
+                "time_entry_id": (row.payload or {}).get("time_entry_id"),
+            },
+        )
         return
 
     payload = row.payload or {}
@@ -61,7 +68,6 @@ def handle_time_entry_clocked_in(row: EventOutbox, db: Session) -> None:
         {
             "latlng": f"{lat_f},{lng_f}",
             "key": api_key,
-            "result_type": "street_address",
         }
     )
     url = f"https://maps.googleapis.com/maps/api/geocode/json?{qs}"
@@ -88,25 +94,30 @@ def handle_time_entry_clocked_in(row: EventOutbox, db: Session) -> None:
 
     selected = None
     route_fallback = None
+    first_dict = None
     for item in results:
         if not isinstance(item, dict):
             continue
+        if first_dict is None:
+            first_dict = item
         types = item.get("types")
         if isinstance(types, list):
-            if "street_address" in types or "premise" in types:
+            types_set = {str(t) for t in types}
+            if types_set == {"plus_code"}:
+                continue
+            if "street_address" in types_set or "premise" in types_set or "subpremise" in types_set:
                 selected = item
                 break
-            if route_fallback is None and "route" in types:
+            if route_fallback is None and "route" in types_set:
                 route_fallback = item
 
     if selected is None:
         if route_fallback is not None:
             selected = route_fallback
         else:
-            first = results[0]
-            if not isinstance(first, dict):
+            if first_dict is None:
                 return
-            selected = first
+            selected = first_dict
 
     formatted = selected.get("formatted_address")
     if not isinstance(formatted, str) or not formatted.strip():
