@@ -12,8 +12,13 @@ class TokenRequest(BaseModel):
     company_id: int
 
 
-@router.post("/token")
-def issue_token(payload: TokenRequest):
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+@router.post("/token", response_model=TokenResponse)
+def issue_token(payload: TokenRequest) -> TokenResponse:
     env = os.getenv("ENV", "dev").lower()
     if env not in {"dev", "local", "test"}:
         raise HTTPException(status_code=404, detail="Not Found")
@@ -22,7 +27,4 @@ def issue_token(payload: TokenRequest):
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-    }
+    return TokenResponse(access_token=token)
