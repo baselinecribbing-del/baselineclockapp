@@ -30,6 +30,7 @@ def test_unique_active_time_entry_prevents_duplicates(employee_factory, job_fact
             started_at=datetime.utcnow(),
             ended_at=None,
             status="active",
+            approval_status="pending",
         )
 
         row2 = TimeEntry(
@@ -41,6 +42,7 @@ def test_unique_active_time_entry_prevents_duplicates(employee_factory, job_fact
             started_at=datetime.utcnow(),
             ended_at=None,
             status="active",
+            approval_status="pending",
         )
 
         db1.add(row1)

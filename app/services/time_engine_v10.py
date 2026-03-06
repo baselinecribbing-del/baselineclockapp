@@ -55,6 +55,7 @@ def clock_in(
             started_at=started_at,
             ended_at=None,
             status="active",
+            approval_status="pending",
         )
 
         db.add(time_entry)
@@ -96,6 +97,8 @@ def clock_out(
 
         active_entry.ended_at = ended_at
         active_entry.status = "completed"
+        if not active_entry.approval_status:
+            active_entry.approval_status = "pending"
 
         db.flush()
         db.refresh(active_entry)

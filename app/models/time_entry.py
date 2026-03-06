@@ -24,3 +24,9 @@ class TimeEntry(Base):
     clock_in_address_source = Column(Text, nullable=True)
 
     status = Column(String, nullable=False, index=True)
+    approval_status = Column(String, nullable=False, index=True, default="pending")
+    approved_at = Column(DateTime, nullable=True)
+    approved_by_user_id = Column(String, nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    rejected_by_user_id = Column(String, nullable=True)
+    approval_note = Column(Text, nullable=True)

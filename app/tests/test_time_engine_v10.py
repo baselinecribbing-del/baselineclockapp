@@ -77,6 +77,7 @@ def test_clock_in_creates_active_entry(employee_factory, job_factory, scope_fact
     assert row.company_id == company_id
     assert row.employee_id == employee_id
     assert row.status == "active"
+    assert row.approval_status == "pending"
     assert _count_active(company_id, employee_id) == 1
 
 
@@ -135,11 +136,13 @@ def test_clock_out_completes_active_entry(employee_factory, job_factory, scope_f
     )
 
     assert row.status == "completed"
+    assert row.approval_status == "pending"
     assert row.ended_at is not None
     assert _count_active(company_id, employee_id) == 0
 
     latest = _latest(company_id, employee_id)
     assert latest.status == "completed"
+    assert latest.approval_status == "pending"
 
 
 def test_clock_out_rejects_when_no_active_entry(employee_factory):

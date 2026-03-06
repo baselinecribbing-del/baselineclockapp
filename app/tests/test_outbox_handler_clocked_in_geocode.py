@@ -56,6 +56,7 @@ def test_clocked_in_geocode_skips_plus_code_when_street_exists(
             scope_id=scope.id,
             started_at=datetime.now(timezone.utc),
             status="active",
+            approval_status="pending",
         )
         db.add(te)
         db.commit()

@@ -54,6 +54,7 @@ def _insert_active(company_id: int, employee_id: int, job_id: int, scope_id: int
             started_at=datetime.utcnow(),
             ended_at=None,
             status="active",
+            approval_status="pending",
         )
         db.add(row)
         db.commit()
