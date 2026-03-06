@@ -137,10 +137,15 @@ def _truncate_tables_between_tests():
 
 @pytest.fixture
 def employee_factory():
-    def _create(company_id: int = 1, name: str = "Test Employee") -> Employee:
+    def _create(company_id: int = 1, name: str = "Test Employee", hourly_rate_cents: int = 3000) -> Employee:
         db = SessionLocal()
         try:
-            row = Employee(company_id=company_id, name=name, is_active=True)
+            row = Employee(
+                company_id=company_id,
+                name=name,
+                is_active=True,
+                hourly_rate_cents=hourly_rate_cents,
+            )
             db.add(row)
             db.commit()
             db.refresh(row)
