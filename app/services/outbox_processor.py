@@ -81,7 +81,8 @@ def _is_due_clause(now: datetime):
     wait_seconds:
       retry_count <= 0 -> 0
       else -> least(60, 2^retry_count)
-    due_at := created_at + wait_seconds seconds
+
+    Compare on epoch seconds to avoid timestamp/timestamptz coercion issues.
     """
     retry_count = func.coalesce(EventOutbox.retry_count, 0)
 
@@ -90,9 +91,10 @@ def _is_due_clause(now: datetime):
         else_=func.least(60, func.power(2, retry_count)),
     )
 
-    # created_at + (wait_seconds * interval '1 second')
-    due_at = EventOutbox.created_at + (wait_seconds * text("interval '1 second'"))
-    return due_at <= now
+    created_epoch = func.extract("epoch", EventOutbox.created_at)
+    now_epoch = func.extract("epoch", now)
+
+    return (created_epoch + wait_seconds) <= now_epoch
 
 
 def process_outbox_batch(

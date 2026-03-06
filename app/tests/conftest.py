@@ -10,7 +10,17 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
-TEST_DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://ArthurS@localhost/frontier_test")
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "postgresql://ArthurS@localhost/frontier_test")
+
+# Never let pytest silently hit a remote/prod database.
+_raw_database_url = os.getenv("DATABASE_URL", "")
+if not os.getenv("TEST_DATABASE_URL") and _raw_database_url and "localhost" not in _raw_database_url and "127.0.0.1" not in _raw_database_url:
+    raise RuntimeError(
+        "Refusing to run tests against non-local DATABASE_URL. "
+        "Set TEST_DATABASE_URL explicitly, e.g. "
+        "'export TEST_DATABASE_URL=postgresql://ArthurS@localhost/frontier_test'"
+    )
+
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 from app import database
@@ -36,20 +46,37 @@ def _ensure_database_exists(database_url: str) -> None:
         return
 
     db_name = url.database
-    admin_url = url.set(database="postgres")
-    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    if not db_name:
+        return
 
-    try:
-        with admin_engine.connect() as conn:
-            exists = conn.execute(
-                text("SELECT 1 FROM pg_database WHERE datname = :name"),
-                {"name": db_name},
-            ).scalar()
-            if not exists:
-                safe_db_name = db_name.replace('"', '""')
-                conn.execute(text(f'CREATE DATABASE "{safe_db_name}"'))
-    finally:
-        admin_engine.dispose()
+    host = (url.host or "").lower()
+    if host in {"localhost", "127.0.0.1", "::1", ""}:
+        admin_db_candidates = ["postgres", db_name]
+    else:
+        admin_db_candidates = ["defaultdb", "postgres", db_name]
+
+    last_error = None
+
+    for admin_db in admin_db_candidates:
+        admin_url = url.set(database=admin_db)
+        admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        try:
+            with admin_engine.connect() as conn:
+                exists = conn.execute(
+                    text("SELECT 1 FROM pg_database WHERE datname = :name"),
+                    {"name": db_name},
+                ).scalar()
+                if not exists:
+                    safe_db_name = db_name.replace('"', '""')
+                    conn.execute(text(f'CREATE DATABASE "{safe_db_name}"'))
+                return
+        except Exception as exc:
+            last_error = exc
+        finally:
+            admin_engine.dispose()
+
+    if last_error is not None:
+        raise last_error
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -142,12 +169,18 @@ def job_factory():
 
 @pytest.fixture
 def scope_factory():
-    def _create(company_id: int = 1, job_id: int | None = None, name: str = "Test Scope") -> Scope:
-        if job_id is None:
-            raise ValueError("scope_factory requires job_id")
+    def _create(company_id: int = 1, name: str = "Test Scope", job_id: int | None = None) -> Scope:
         db = SessionLocal()
         try:
-            row = Scope(company_id=company_id, job_id=job_id, name=name, is_active=True)
+            row_kwargs = {
+                "company_id": company_id,
+                "name": name,
+                "is_active": True,
+            }
+            if job_id is not None and hasattr(Scope, "job_id"):
+                row_kwargs["job_id"] = job_id
+
+            row = Scope(**row_kwargs)
             db.add(row)
             db.commit()
             db.refresh(row)
