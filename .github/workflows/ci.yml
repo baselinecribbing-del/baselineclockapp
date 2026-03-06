@@ -26,6 +26,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/frontier_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/frontier_test
       JWT_SECRET: dev-secret-change-me-dev-secret-change-me
 
     steps:
