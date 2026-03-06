@@ -42,6 +42,20 @@ class ClockOutRequest(BaseModel):
     )
 
 
+class RejectTimeEntryRequest(BaseModel):
+    approval_note: Optional[str] = None
+
+
+class ApprovalActionResponse(BaseModel):
+    time_entry_id: str
+    approval_status: str
+    approved_at: Optional[datetime] = None
+    approved_by_user_id: Optional[str] = None
+    rejected_at: Optional[datetime] = None
+    rejected_by_user_id: Optional[str] = None
+    approval_note: Optional[str] = None
+
+
 class TimeEntryResponse(BaseModel):
     time_entry_id: str
     company_id: int
@@ -49,6 +63,12 @@ class TimeEntryResponse(BaseModel):
     job_id: int
     scope_id: int
     status: str
+    approval_status: str
+    approved_at: Optional[datetime] = None
+    approved_by_user_id: Optional[str] = None
+    rejected_at: Optional[datetime] = None
+    rejected_by_user_id: Optional[str] = None
+    approval_note: Optional[str] = None
     started_at: datetime
     ended_at: Optional[datetime]
     clock_in_lat: Optional[float] = None
@@ -67,6 +87,12 @@ def _to_response(entry: TimeEntry) -> TimeEntryResponse:
         job_id=entry.job_id,
         scope_id=entry.scope_id,
         status=entry.status,
+        approval_status=entry.approval_status,
+        approved_at=entry.approved_at,
+        approved_by_user_id=entry.approved_by_user_id,
+        rejected_at=entry.rejected_at,
+        rejected_by_user_id=entry.rejected_by_user_id,
+        approval_note=entry.approval_note,
         started_at=entry.started_at,
         ended_at=entry.ended_at,
         clock_in_lat=float(entry.clock_in_lat) if entry.clock_in_lat is not None else None,
@@ -87,6 +113,7 @@ def list_time_entries(
     job_id: Optional[int] = Query(default=None),
     scope_id: Optional[int] = Query(default=None),
     status: Optional[Literal["active", "completed"]] = Query(default=None),
+    approval_status: Optional[Literal["pending", "approved", "rejected"]] = Query(default=None),
     started_at_from: Optional[datetime] = Query(default=None),
     started_at_to: Optional[datetime] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
@@ -107,6 +134,8 @@ def list_time_entries(
             q = q.filter(TimeEntry.scope_id == int(scope_id))
         if status is not None:
             q = q.filter(TimeEntry.status == status)
+        if approval_status is not None:
+            q = q.filter(TimeEntry.approval_status == approval_status)
         if started_at_from is not None:
             q = q.filter(TimeEntry.started_at >= started_at_from)
         if started_at_to is not None:
@@ -255,6 +284,106 @@ def clock_out_endpoint(
     except Exception:
         db.rollback()
         raise
+    finally:
+        db.close()
+
+
+def _get_time_entry_or_404(db, company_id: int, time_entry_id: str) -> TimeEntry:
+    entry = (
+        db.query(TimeEntry)
+        .filter(
+            TimeEntry.company_id == int(company_id),
+            TimeEntry.time_entry_id == time_entry_id,
+        )
+        .first()
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Time entry not found")
+    return entry
+
+
+def _ensure_time_entry_is_completed(entry: TimeEntry) -> None:
+    if entry.status != "completed":
+        raise HTTPException(status_code=409, detail="Only completed time entries can be approved or rejected")
+
+
+def _to_approval_response(entry: TimeEntry) -> ApprovalActionResponse:
+    return ApprovalActionResponse(
+        time_entry_id=entry.time_entry_id,
+        approval_status=entry.approval_status,
+        approved_at=entry.approved_at,
+        approved_by_user_id=entry.approved_by_user_id,
+        rejected_at=entry.rejected_at,
+        rejected_by_user_id=entry.rejected_by_user_id,
+        approval_note=entry.approval_note,
+    )
+
+
+@router.post("/{time_entry_id}/approve", response_model=ApprovalActionResponse)
+def approve_time_entry(
+    time_entry_id: str,
+    request: Request,
+    x_company_id: int = Header(..., alias="X-Company-Id"),
+    _auth: tuple[str, int] = Depends(require_auth),
+):
+    if int(x_company_id) != int(request.state.company_id):
+        raise HTTPException(status_code=403, detail="Company mismatch")
+
+    db = SessionLocal()
+    try:
+        entry = _get_time_entry_or_404(db, int(x_company_id), time_entry_id)
+        _ensure_time_entry_is_completed(entry)
+
+        if entry.approval_status == "rejected":
+            raise HTTPException(status_code=409, detail="Rejected time entry cannot be approved")
+        if entry.approval_status == "approved":
+            raise HTTPException(status_code=409, detail="Time entry already approved")
+
+        entry.approval_status = "approved"
+        entry.approved_at = datetime.now(timezone.utc)
+        entry.approved_by_user_id = str(request.state.user_id)
+        entry.rejected_at = None
+        entry.rejected_by_user_id = None
+        entry.approval_note = None
+
+        db.commit()
+        db.refresh(entry)
+        return _to_approval_response(entry)
+    finally:
+        db.close()
+
+
+@router.post("/{time_entry_id}/reject", response_model=ApprovalActionResponse)
+def reject_time_entry(
+    time_entry_id: str,
+    payload: RejectTimeEntryRequest,
+    request: Request,
+    x_company_id: int = Header(..., alias="X-Company-Id"),
+    _auth: tuple[str, int] = Depends(require_auth),
+):
+    if int(x_company_id) != int(request.state.company_id):
+        raise HTTPException(status_code=403, detail="Company mismatch")
+
+    db = SessionLocal()
+    try:
+        entry = _get_time_entry_or_404(db, int(x_company_id), time_entry_id)
+        _ensure_time_entry_is_completed(entry)
+
+        if entry.approval_status == "approved":
+            raise HTTPException(status_code=409, detail="Approved time entry cannot be rejected")
+        if entry.approval_status == "rejected":
+            raise HTTPException(status_code=409, detail="Time entry already rejected")
+
+        entry.approval_status = "rejected"
+        entry.rejected_at = datetime.now(timezone.utc)
+        entry.rejected_by_user_id = str(request.state.user_id)
+        entry.approved_at = None
+        entry.approved_by_user_id = None
+        entry.approval_note = payload.approval_note
+
+        db.commit()
+        db.refresh(entry)
+        return _to_approval_response(entry)
     finally:
         db.close()
 
