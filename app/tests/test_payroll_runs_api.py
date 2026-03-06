@@ -53,6 +53,13 @@ def test_list_payroll_runs_scoped_and_filtered():
                     status="POSTED",
                 ),
                 PayPeriod(
+                    pay_period_id="pp-list-3",
+                    company_id=company_id,
+                    start_date=date(2026, 1, 17),
+                    end_date=date(2026, 1, 24),
+                    status="POSTED",
+                ),
+                PayPeriod(
                     pay_period_id="pp-list-other",
                     company_id=other_company_id,
                     start_date=date(2026, 1, 1),
@@ -75,7 +82,7 @@ def test_list_payroll_runs_scoped_and_filtered():
                 PayrollRun(
                     payroll_run_id="pr-list-draft",
                     company_id=company_id,
-                    pay_period_id="pp-list-1",
+                    pay_period_id="pp-list-3",
                     status="DRAFT",
                     posted_at=None,
                 ),
@@ -121,7 +128,12 @@ def test_list_payroll_runs_scoped_and_filtered():
     r3 = client.get("/payroll/runs?pay_period_id=pp-list-1", headers=headers)
     assert r3.status_code == 200, r3.text
     ids3 = [row["payroll_run_id"] for row in r3.json()["rows"]]
-    assert ids3 == ["pr-list-posted-older", "pr-list-draft"]
+    assert ids3 == ["pr-list-posted-older"]
+
+    r4 = client.get("/payroll/runs?pay_period_id=pp-list-3", headers=headers)
+    assert r4.status_code == 200, r4.text
+    ids4 = [row["payroll_run_id"] for row in r4.json()["rows"]]
+    assert ids4 == ["pr-list-draft"]
 
 
 def test_get_payroll_run_detail_returns_items_and_total():
