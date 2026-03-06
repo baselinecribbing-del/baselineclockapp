@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.main import app
 from app.models.employee import Employee
+from app.models.job import Job
 from app.models.pay_period import PayPeriod
 from app.models.payroll_item import PayrollItem
 from app.models.payroll_run import PayrollRun
+from app.models.scope import Scope
+from app.models.time_entry import TimeEntry
 
 
 def _utcnow() -> datetime:
@@ -198,3 +201,130 @@ def test_get_payroll_run_detail_returns_items_and_total():
     missing = client.get("/payroll/runs/does-not-exist", headers=headers)
     assert missing.status_code == 404, missing.text
     assert missing.json()["detail"] == "Not found"
+
+
+def test_create_payroll_run_generates_items_from_approved_time_entries():
+    company_id = 1
+    pay_period_id = "pp-generate-1"
+    start_day = date(2026, 3, 1)
+    end_day = date(2026, 3, 14)
+
+    db = SessionLocal()
+    try:
+        approved_employee = Employee(company_id=company_id, name="Approved Emp", hourly_rate_cents=3000)
+        pending_employee = Employee(company_id=company_id, name="Pending Emp", hourly_rate_cents=3200)
+        db.add_all([approved_employee, pending_employee])
+        db.flush()
+
+        approved_job = Job(company_id=company_id, name="Approved Job", is_active=True)
+        pending_job = Job(company_id=company_id, name="Pending Job", is_active=True)
+        db.add_all([approved_job, pending_job])
+        db.flush()
+
+        approved_scope = Scope(company_id=company_id, name="Approved Scope", is_active=True, job_id=approved_job.id)
+        pending_scope = Scope(company_id=company_id, name="Pending Scope", is_active=True, job_id=pending_job.id)
+        db.add_all([approved_scope, pending_scope])
+        db.flush()
+
+        db.add(
+            PayPeriod(
+                pay_period_id=pay_period_id,
+                company_id=company_id,
+                start_date=start_day,
+                end_date=end_day,
+                status="POSTED",
+            )
+        )
+        db.flush()
+
+        approved_start = datetime(2026, 3, 3, 8, 0, 0, tzinfo=timezone.utc)
+        approved_end = approved_start + timedelta(hours=2)
+        pending_start = datetime(2026, 3, 4, 9, 0, 0, tzinfo=timezone.utc)
+        pending_end = pending_start + timedelta(hours=3)
+
+        db.add_all(
+            [
+                TimeEntry(
+                    time_entry_id="te-approved-payroll-1",
+                    company_id=company_id,
+                    employee_id=approved_employee.id,
+                    job_id=approved_job.id,
+                    scope_id=approved_scope.id,
+                    started_at=approved_start,
+                    ended_at=approved_end,
+                    status="completed",
+                    approval_status="approved",
+                ),
+                TimeEntry(
+                    time_entry_id="te-pending-payroll-1",
+                    company_id=company_id,
+                    employee_id=pending_employee.id,
+                    job_id=pending_job.id,
+                    scope_id=pending_scope.id,
+                    started_at=pending_start,
+                    ended_at=pending_end,
+                    status="completed",
+                    approval_status="pending",
+                ),
+            ]
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    client = TestClient(app)
+    headers = _auth_headers(company_id)
+
+    created = client.post(
+        "/payroll/runs",
+        json={"pay_period_id": pay_period_id},
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    payload = created.json()
+    assert payload["company_id"] == company_id
+    assert payload["pay_period_id"] == pay_period_id
+    assert payload["status"] == "DRAFT"
+    assert payload["items_created"] == 1
+
+    payroll_run_id = payload["payroll_run_id"]
+    detail = client.get(f"/payroll/runs/{payroll_run_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["gross_total_cents"] == 6000
+    assert len(body["items"]) == 1
+    assert body["items"][0]["hours"] == "2.00"
+    assert body["items"][0]["rate_cents"] == 3000
+    assert body["items"][0]["gross_pay_cents"] == 6000
+    assert body["items"][0]["meta"]["time_entry_id"] == "te-approved-payroll-1"
+
+
+def test_create_payroll_run_requires_company_scoped_pay_period():
+    company_id = 1
+    other_company_id = 2
+
+    db = SessionLocal()
+    try:
+        db.add(
+            PayPeriod(
+                pay_period_id="pp-other-company-only",
+                company_id=other_company_id,
+                start_date=date(2026, 4, 1),
+                end_date=date(2026, 4, 14),
+                status="POSTED",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    client = TestClient(app)
+    headers = _auth_headers(company_id)
+
+    created = client.post(
+        "/payroll/runs",
+        json={"pay_period_id": "pp-other-company-only"},
+        headers=headers,
+    )
+    assert created.status_code == 404, created.text
+    assert created.json()["detail"] == "PayPeriod not found"

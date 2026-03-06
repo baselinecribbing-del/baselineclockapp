@@ -1,17 +1,19 @@
 from typing import Any, Optional, Union, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from app.models.event_outbox import EventOutbox
-from fastapi import HTTPException
 from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.authorization import Role, require_role
 from app.database import SessionLocal
+from app.models.event_outbox import EventOutbox
+from app.models.pay_period import PayPeriod
 from app.models.payroll_item import PayrollItem
 from app.models.payroll_run import PayrollRun
+from app.services.payroll_builder import build_payroll_items_for_run
 
 router = APIRouter(prefix="/payroll", tags=["Payroll"])
 
@@ -29,6 +31,18 @@ class PayrollRunsResponse(BaseModel):
     limit: int
     offset: int
     rows: list[PayrollRunRow]
+
+
+class CreatePayrollRunRequest(BaseModel):
+    pay_period_id: str
+
+
+class CreatePayrollRunResponse(BaseModel):
+    payroll_run_id: str
+    company_id: int
+    pay_period_id: str
+    status: str
+    items_created: int
 
 
 class PayrollRunDetail(BaseModel):
@@ -71,6 +85,54 @@ class PayrollReconciliationError(BaseModel):
 
 
 PayrollReconciliationResponse = Union[PayrollReconciliationOk, PayrollReconciliationError]
+
+
+@router.post("/runs", response_model=CreatePayrollRunResponse)
+def create_payroll_run(
+    payload: CreatePayrollRunRequest,
+    request: Request,
+    _role=Depends(require_role(Role.MANAGER)),
+):
+    db: Session = SessionLocal()
+    try:
+        company_id = int(request.state.company_id)
+
+        pay_period = (
+            db.query(PayPeriod)
+            .filter(PayPeriod.company_id == company_id)
+            .filter(PayPeriod.pay_period_id == str(payload.pay_period_id))
+            .one_or_none()
+        )
+        if pay_period is None:
+            raise HTTPException(status_code=404, detail="PayPeriod not found")
+
+        payroll_run = PayrollRun(
+            company_id=company_id,
+            pay_period_id=str(payload.pay_period_id),
+            status="DRAFT",
+        )
+        db.add(payroll_run)
+        db.flush()
+
+        items = build_payroll_items_for_run(
+            db=db,
+            company_id=company_id,
+            payroll_run_id=str(payroll_run.payroll_run_id),
+            pay_period=pay_period,
+        )
+
+        db.commit()
+        db.refresh(payroll_run)
+
+        return {
+            "payroll_run_id": payroll_run.payroll_run_id,
+            "company_id": payroll_run.company_id,
+            "pay_period_id": payroll_run.pay_period_id,
+            "status": payroll_run.status,
+            "items_created": len(items),
+        }
+    finally:
+        db.close()
 
 
 @router.get("/runs", response_model=PayrollRunsResponse)
