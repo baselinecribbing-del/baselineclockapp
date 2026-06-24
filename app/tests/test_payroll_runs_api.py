@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 from app.database import SessionLocal
 from app.main import app
 from app.models.employee import Employee
+from app.models.event_outbox import EventOutbox
 from app.models.job import Job
+from app.models.job_cost_ledger import JobCostLedger
 from app.models.pay_period import PayPeriod
 from app.models.payroll_item import PayrollItem
 from app.models.payroll_run import PayrollRun
@@ -164,8 +166,8 @@ def test_get_payroll_run_detail_returns_items_and_total():
                 payroll_run_id=payroll_run_id,
                 company_id=company_id,
                 pay_period_id=pay_period_id,
-                status="POSTED",
-                posted_at=_utcnow(),
+                status="DRAFT",
+                posted_at=None,
             )
         )
         db.flush()
@@ -193,6 +195,16 @@ def test_get_payroll_run_detail_returns_items_and_total():
             ]
         )
         db.commit()
+
+        payroll_run = (
+            db.query(PayrollRun)
+            .filter(PayrollRun.company_id == company_id)
+            .filter(PayrollRun.payroll_run_id == payroll_run_id)
+            .one()
+        )
+        payroll_run.status = "POSTED"
+        payroll_run.posted_at = _utcnow()
+        db.commit()
     finally:
         db.close()
 
@@ -213,6 +225,288 @@ def test_get_payroll_run_detail_returns_items_and_total():
     missing = client.get("/payroll/runs/does-not-exist", headers=headers)
     assert missing.status_code == 404, missing.text
     assert missing.json()["detail"] == "Not found"
+
+
+def test_get_payroll_reconciliation_returns_non_mutating_error_when_unbalanced():
+    company_id = 3
+    payroll_run_id = "pr-recon-mismatch-1"
+    pay_period_id = "pp-recon-mismatch-1"
+
+    db = SessionLocal()
+    try:
+        employee = Employee(company_id=company_id, name="Reconciliation Employee")
+        db.add(employee)
+        db.flush()
+
+        db.add(
+            PayPeriod(
+                pay_period_id=pay_period_id,
+                company_id=company_id,
+                start_date=date(2026, 2, 1),
+                end_date=date(2026, 2, 14),
+                status="POSTED",
+            )
+        )
+        db.flush()
+
+        db.add(
+            PayrollRun(
+                payroll_run_id=payroll_run_id,
+                company_id=company_id,
+                pay_period_id=pay_period_id,
+                status="DRAFT",
+                posted_at=None,
+            )
+        )
+        db.flush()
+
+        db.add(
+            PayrollItem(
+                company_id=company_id,
+                payroll_run_id=payroll_run_id,
+                employee_id=employee.id,
+                hours=2,
+                rate_cents=4000,
+                gross_pay_cents=8000,
+                meta={"job_id": 44},
+            )
+        )
+        db.commit()
+
+        payroll_run = (
+            db.query(PayrollRun)
+            .filter(PayrollRun.company_id == company_id)
+            .filter(PayrollRun.payroll_run_id == payroll_run_id)
+            .one()
+        )
+        payroll_run.status = "POSTED"
+        payroll_run.posted_at = _utcnow()
+        db.commit()
+    finally:
+        db.close()
+
+    client = TestClient(app)
+    headers = _auth_headers(company_id)
+
+    seed_db = SessionLocal()
+    try:
+        before_outbox_count = seed_db.query(EventOutbox).filter(EventOutbox.company_id == company_id).count()
+        before_ledger_count = seed_db.query(JobCostLedger).filter(JobCostLedger.company_id == company_id).count()
+    finally:
+        seed_db.close()
+
+    response = client.get(f"/payroll/runs/{payroll_run_id}/reconciliation", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "ok": False,
+        "detail": "Payroll reconciliation failed: payroll_total=8000, ledger_total=0",
+    }
+
+    verify_db = SessionLocal()
+    try:
+        after_outbox_count = verify_db.query(EventOutbox).filter(EventOutbox.company_id == company_id).count()
+        after_ledger_count = verify_db.query(JobCostLedger).filter(JobCostLedger.company_id == company_id).count()
+    finally:
+        verify_db.close()
+
+    assert after_outbox_count == before_outbox_count
+    assert after_ledger_count == before_ledger_count
+
+
+def test_get_payroll_reconciliation_returns_balanced_totals_without_mutation():
+    company_id = 4
+    payroll_run_id = "pr-recon-balanced-1"
+    pay_period_id = "pp-recon-balanced-1"
+
+    db = SessionLocal()
+    try:
+        employee = Employee(company_id=company_id, name="Balanced Reconciliation Employee")
+        job = Job(company_id=company_id, name="Balanced Reconciliation Job", is_active=True)
+        db.add_all([employee, job])
+        db.flush()
+
+        db.add(
+            PayPeriod(
+                pay_period_id=pay_period_id,
+                company_id=company_id,
+                start_date=date(2026, 2, 15),
+                end_date=date(2026, 2, 28),
+                status="POSTED",
+            )
+        )
+        db.flush()
+
+        db.add(
+            PayrollRun(
+                payroll_run_id=payroll_run_id,
+                company_id=company_id,
+                pay_period_id=pay_period_id,
+                status="POSTED",
+                posted_at=_utcnow(),
+            )
+        )
+        db.flush()
+
+        db.add_all(
+            [
+                PayrollItem(
+                    company_id=company_id,
+                    payroll_run_id=payroll_run_id,
+                    employee_id=employee.id,
+                    hours=2,
+                    rate_cents=4000,
+                    gross_pay_cents=8000,
+                    meta={"job_id": job.id},
+                ),
+                PayrollItem(
+                    company_id=company_id,
+                    payroll_run_id=payroll_run_id,
+                    employee_id=employee.id,
+                    hours=1.5,
+                    rate_cents=4000,
+                    gross_pay_cents=6000,
+                    meta={"job_id": job.id},
+                ),
+                JobCostLedger(
+                    company_id=company_id,
+                    job_id=job.id,
+                    cost_category="labor",
+                    amount=140.00,
+                    source_type="payroll_run_labor",
+                    source_reference_id=f"{payroll_run_id}:1",
+                    total_cost_cents=8000,
+                ),
+                JobCostLedger(
+                    company_id=company_id,
+                    job_id=job.id,
+                    cost_category="labor",
+                    amount=140.00,
+                    source_type="payroll_run_labor",
+                    source_reference_id=f"{payroll_run_id}:2",
+                    total_cost_cents=6000,
+                ),
+            ]
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    client = TestClient(app)
+    headers = _auth_headers(company_id)
+
+    verify_db = SessionLocal()
+    try:
+        before_outbox_count = verify_db.query(EventOutbox).filter(EventOutbox.company_id == company_id).count()
+        before_ledger_ids = [
+            row.id
+            for row in verify_db.query(JobCostLedger)
+            .filter(JobCostLedger.company_id == company_id)
+            .filter(JobCostLedger.source_type == "payroll_run_labor")
+            .filter(JobCostLedger.source_reference_id.like(f"{payroll_run_id}:%"))
+            .order_by(JobCostLedger.id.asc())
+            .all()
+        ]
+    finally:
+        verify_db.close()
+
+    response = client.get(f"/payroll/runs/{payroll_run_id}/reconciliation", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "ok": True,
+        "payroll_total_cents": 14000,
+        "ledger_total_cents": 14000,
+        "delta_cents": 0,
+    }
+
+    verify_db = SessionLocal()
+    try:
+        after_outbox_count = verify_db.query(EventOutbox).filter(EventOutbox.company_id == company_id).count()
+        after_ledger_ids = [
+            row.id
+            for row in verify_db.query(JobCostLedger)
+            .filter(JobCostLedger.company_id == company_id)
+            .filter(JobCostLedger.source_type == "payroll_run_labor")
+            .filter(JobCostLedger.source_reference_id.like(f"{payroll_run_id}:%"))
+            .order_by(JobCostLedger.id.asc())
+            .all()
+        ]
+    finally:
+        verify_db.close()
+
+    assert after_outbox_count == before_outbox_count
+    assert after_ledger_ids == before_ledger_ids
+
+
+def test_get_payroll_reconciliation_is_company_scoped():
+    company_id = 5
+    other_company_id = 6
+    payroll_run_id = "pr-recon-scope-1"
+    pay_period_id = "pp-recon-scope-1"
+
+    db = SessionLocal()
+    try:
+        employee = Employee(company_id=company_id, name="Scope Reconciliation Employee")
+        other_job = Job(company_id=other_company_id, name="Other Company Job", is_active=True)
+        db.add_all([employee, other_job])
+        db.flush()
+
+        db.add(
+            PayPeriod(
+                pay_period_id=pay_period_id,
+                company_id=company_id,
+                start_date=date(2026, 3, 1),
+                end_date=date(2026, 3, 14),
+                status="POSTED",
+            )
+        )
+        db.flush()
+
+        db.add(
+            PayrollRun(
+                payroll_run_id=payroll_run_id,
+                company_id=company_id,
+                pay_period_id=pay_period_id,
+                status="POSTED",
+                posted_at=_utcnow(),
+            )
+        )
+        db.flush()
+
+        db.add(
+            PayrollItem(
+                company_id=company_id,
+                payroll_run_id=payroll_run_id,
+                employee_id=employee.id,
+                hours=3,
+                rate_cents=3000,
+                gross_pay_cents=9000,
+                meta={"job_id": 99},
+            )
+        )
+        db.add(
+            JobCostLedger(
+                company_id=other_company_id,
+                job_id=other_job.id,
+                cost_category="labor",
+                amount=90.00,
+                source_type="payroll_run_labor",
+                source_reference_id=f"{payroll_run_id}:foreign",
+                total_cost_cents=9000,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    client = TestClient(app)
+    headers = _auth_headers(company_id)
+
+    response = client.get(f"/payroll/runs/{payroll_run_id}/reconciliation", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "ok": False,
+        "detail": "Payroll reconciliation failed: payroll_total=9000, ledger_total=0",
+    }
 
 
 def test_create_payroll_run_generates_items_from_approved_time_entries():
