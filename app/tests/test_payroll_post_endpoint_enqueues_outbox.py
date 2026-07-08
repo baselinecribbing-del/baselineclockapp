@@ -55,9 +55,15 @@ def test_payroll_post_endpoint_enqueues_outbox():
     finally:
         db.close()
 
-    # Act: call endpoint (should be idempotent and enqueue outbox)
+    # Act: call endpoint (should be idempotent and enqueue outbox).
+    # The endpoint is auth-guarded (MANAGER+) and company-scoped, so we mint a
+    # token for the same company and pass the X-Company-Id header.
     client = TestClient(app)
-    r = client.post(f"/payroll/runs/{payroll_run_id}/post")
+    token = client.post(
+        "/auth/token", json={"user_id": "test", "company_id": company_id}
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}", "X-Company-Id": str(company_id)}
+    r = client.post(f"/payroll/runs/{payroll_run_id}/post", headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body.get("ok") is True
