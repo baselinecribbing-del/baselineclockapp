@@ -1,0 +1,58 @@
+name: Deploy DigitalOcean App Platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live_smoke:
+        description: "Run live smoke checks after deployment"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+      smoke_use_auth_token_flow:
+        description: "Use /auth/token flow for smoke auth (set false for prod if auth endpoint disabled)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["true", "false"]
+      smoke_base_url:
+        description: "Optional override for base URL (defaults to secret SMOKE_BASE_URL)"
+        required: false
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+
+      - name: Deploy and optional live smoke
+        env:
+          DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
+          DO_APP_ID: ${{ secrets.DO_APP_ID }}
+          SMOKE_BASE_URL: ${{ inputs.smoke_base_url != '' && inputs.smoke_base_url || secrets.SMOKE_BASE_URL }}
+          SMOKE_COMPANY_ID: ${{ secrets.SMOKE_COMPANY_ID }}
+          SMOKE_USER_ID: ${{ secrets.SMOKE_USER_ID }}
+          SMOKE_BEARER_TOKEN: ${{ secrets.SMOKE_BEARER_TOKEN }}
+          SMOKE_USE_AUTH_TOKEN_FLOW: ${{ inputs.smoke_use_auth_token_flow }}
+          DEPLOY_TIMEOUT_SECONDS: "1200"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/do_app_deploy.sh scripts/live_smoke.py
+
+          if [[ "${{ inputs.run_live_smoke }}" == "true" ]]; then
+            export RUN_LIVE_SMOKE=1
+          else
+            export RUN_LIVE_SMOKE=0
+          fi
+
+          ./scripts/do_app_deploy.sh

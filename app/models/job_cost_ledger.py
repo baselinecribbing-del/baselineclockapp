@@ -28,6 +28,8 @@ class JobCostLedger(Base):
     source_type = Column(String, index=True, nullable=False)  # LABOR|PRODUCTION|MATERIAL|ADJUSTMENT
     source_reference_id = Column(String, index=True, nullable=False)
     cost_category = Column(String, index=True, nullable=False)
+    job_purchase_order_id = Column(String, index=True, nullable=True)
+    cost_source = Column(String, index=True, nullable=False, default="PAYROLL", server_default="PAYROLL")
 
     quantity = Column(Numeric, nullable=True)
     unit_cost_cents = Column(Integer, nullable=True)

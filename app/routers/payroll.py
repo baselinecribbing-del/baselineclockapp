@@ -267,15 +267,26 @@ def _utcnow() -> datetime:
 
 
 @router.post("/runs/{payroll_run_id}/post")
-def post_payroll_run(payroll_run_id: str) -> dict:
+def post_payroll_run(
+    payroll_run_id: str,
+    request: Request,
+    _role=Depends(require_role(Role.MANAGER)),
+) -> dict:
     """
     Mark a payroll run POSTED and enqueue outbox event PAYROLL_RUN_POSTED.
     Idempotent: safe to call multiple times.
+
+    Requires an authenticated MANAGER+ principal (matching the sibling
+    payroll-run endpoints) and is scoped to the caller's company: a token for
+    company A can never post company B's run.
     """
     db: Session = SessionLocal()
     try:
+        company_id = int(request.state.company_id)
+
         pr = (
             db.query(PayrollRun)
+            .filter(PayrollRun.company_id == company_id)
             .filter(PayrollRun.payroll_run_id == str(payroll_run_id))
             .one_or_none()
         )
@@ -286,8 +297,6 @@ def post_payroll_run(payroll_run_id: str) -> dict:
             pr.status = "POSTED"
         if pr.posted_at is None:
             pr.posted_at = _utcnow()
-
-        company_id = int(pr.company_id)
 
         idempotency_key = f"PAYROLL_RUN_POSTED:{company_id}:{payroll_run_id}"
         existing = (

@@ -16,3 +16,8 @@ class Job(Base):
     site_lat = Column(Numeric(9, 6), nullable=True)
     site_lng = Column(Numeric(9, 6), nullable=True)
     site_radius_m = Column(Integer, nullable=True)
+
+    # --- Columns added by later migrations; previously unmapped (drift → 500s). ---
+    address_label = Column(String, nullable=True)
+    source_job_start_intake_id = Column(String, nullable=True)
+    status = Column(String, nullable=False, server_default="QUEUED")

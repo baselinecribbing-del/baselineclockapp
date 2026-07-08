@@ -44,3 +44,31 @@ def require_auth(request: Request) -> Tuple[str, int]:
     request.state.company_id = token_company_id
 
     return user_id, token_company_id
+
+
+def get_actor_user_id(request: Request) -> str:
+    """Return the authenticated principal's user id.
+
+    Prefers the value populated on ``request.state`` by ``require_auth``; falls
+    back to decoding the bearer token directly so the helper is safe to call
+    even when ``require_auth`` has not run earlier in the dependency chain.
+    """
+    user_id = getattr(request.state, "user_id", None)
+    if user_id:
+        return str(user_id)
+
+    token = _parse_bearer_token(request)
+    try:
+        claims = verify_token(token)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    return str(claims.get("sub"))
+
+
+def get_authenticated_account_id(request: Request) -> str:
+    """Return the authenticated account id.
+
+    In the legacy JWT model the account principal is the token subject, so this
+    resolves to the same identity as :func:`get_actor_user_id`.
+    """
+    return get_actor_user_id(request)
