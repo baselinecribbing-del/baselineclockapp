@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from app.core.authorization import Role, require_role
 from app.database import SessionLocal
 from app.deps.auth import require_auth
 from app.models.job import Job
@@ -324,7 +325,7 @@ def approve_time_entry(
     time_entry_id: str,
     request: Request,
     x_company_id: int = Header(..., alias="X-Company-Id"),
-    _auth: tuple[str, int] = Depends(require_auth),
+    _role=Depends(require_role(Role.MANAGER)),
 ):
     if int(x_company_id) != int(request.state.company_id):
         raise HTTPException(status_code=403, detail="Company mismatch")
@@ -359,7 +360,7 @@ def reject_time_entry(
     payload: RejectTimeEntryRequest,
     request: Request,
     x_company_id: int = Header(..., alias="X-Company-Id"),
-    _auth: tuple[str, int] = Depends(require_auth),
+    _role=Depends(require_role(Role.MANAGER)),
 ):
     if int(x_company_id) != int(request.state.company_id):
         raise HTTPException(status_code=403, detail="Company mismatch")

@@ -2,10 +2,14 @@ from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models.time_entry import TimeEntry
+
+# DB CHECK constraint that enforces non-negative time-entry duration.
+_NONNEGATIVE_DURATION_CONSTRAINT = "ck_time_entries_ended_at_after_started_at"
 
 
 def _get_active_entry(
@@ -85,6 +89,12 @@ def clock_out(
     """
     If db is provided, this function will NOT commit/close. Caller owns the transaction.
     If db is None, this function manages its own session + commit.
+
+    Negative-hours guard: a time entry may never end before it started. This is
+    enforced authoritatively by the DB CHECK constraint
+    ``ck_time_entries_ended_at_after_started_at`` (tz-proof — it compares the
+    stored values). A violation is translated into a ValueError so callers return
+    a clean 409 instead of a 500.
     """
     owns_db = db is None
     if owns_db:
@@ -100,7 +110,14 @@ def clock_out(
         if not active_entry.approval_status:
             active_entry.approval_status = "pending"
 
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError as exc:
+            if _NONNEGATIVE_DURATION_CONSTRAINT in str(getattr(exc, "orig", exc)):
+                raise ValueError(
+                    "ended_at must not be earlier than started_at (negative duration)"
+                ) from exc
+            raise
         db.refresh(active_entry)
 
         if owns_db:
