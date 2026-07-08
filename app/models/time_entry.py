@@ -1,10 +1,18 @@
-from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text
+from sqlalchemy import CheckConstraint, Column, DateTime, Integer, Numeric, String, Text
 
 from app.database import Base
 
 
 class TimeEntry(Base):
     __tablename__ = "time_entries"
+
+    __table_args__ = (
+        # A time entry may never end before it started (negative-duration guard).
+        CheckConstraint(
+            "ended_at IS NULL OR ended_at >= started_at",
+            name="ck_time_entries_ended_at_after_started_at",
+        ),
+    )
 
     time_entry_id = Column(String, primary_key=True, index=True)
 

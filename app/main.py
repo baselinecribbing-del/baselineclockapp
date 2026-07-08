@@ -20,6 +20,19 @@ from app.routers.scopes import router as scopes_router
 from app.routers.schedules import router as schedules_router
 from app.routers.time_entries import router as time_entries_router
 from app.routers.workflow_preview import router as preview_router
+
+# --- Milestone 1: Time & Attendance workforce surface ---
+# Safe to mount: identity/attendance/crew/onboarding-read routers gated by the
+# modern access-control layer. Deliberately NOT mounted in M1: invoices, ledger,
+# waste_bin(s), job_documents, foundations, frontier_ai, settings — out of the
+# Time & Attendance scope. Payroll finalize/T4/tax stay behind the existing
+# admin/role guards on the already-mounted payroll router.
+from app.routers.crews import router as crews_router
+from app.routers.company import router as company_router
+from app.routers.credentials import router as credentials_router
+from app.routers.employee_self_service import router as employee_self_service_router
+from app.routers.field import router as field_router
+from app.routers.command_center import router as command_center_router
 from app.services.outbox_worker import start_outbox_worker_task
 
 logger = logging.getLogger(__name__)
@@ -85,6 +98,14 @@ app.include_router(employees_router)
 app.include_router(jobs_router)
 app.include_router(scopes_router)
 app.include_router(schedules_router)
+
+# --- Milestone 1: Time & Attendance workforce surface ---
+app.include_router(crews_router)
+app.include_router(company_router)
+app.include_router(credentials_router)
+app.include_router(employee_self_service_router)
+app.include_router(field_router)
+app.include_router(command_center_router)
 
 # ---- Debug (dev only, hardened) ----
 # Enable ONLY in local dev. Requirements:
