@@ -22,7 +22,9 @@ def require_role(role: Role):
 
         claim_role = claims.get("role")
         if not claim_role:
-            claim_role = "MANAGER"
+            # Fail closed: a token that carries no role claim is never granted a
+            # privileged default. All tokens minted by this system stamp a role.
+            raise HTTPException(status_code=403, detail="Missing role claim")
 
         try:
             user_role = Role(str(claim_role).upper())
